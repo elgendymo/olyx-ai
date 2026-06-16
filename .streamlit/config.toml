@@ -1,0 +1,11 @@
+# Dark theme — Briefy-ish calm palette. Look/feel where it matters; no component library.
+[theme]
+base = "dark"
+primaryColor = "#22d3ee"
+backgroundColor = "#0b1220"
+secondaryBackgroundColor = "#121a2b"
+textColor = "#e2e8f0"
+font = "monospace"
+
+[server]
+headless = true
