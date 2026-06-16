@@ -176,4 +176,37 @@ already a one-line env failover; PITCH "The Cut" (Phase 6).
 
 **Test:** `pytest tests/` → **48 passed**.
 
-**Status:** ✅ committing Phase 3.6. Next: Phase 4 — `llm.py` + `copilot.py` (await go-ahead).
+**Status:** ✅ committed `654b53e`.
+
+## Phase 4a — `llm.py` (swappable LLM client, local-first, no API key)
+
+**Done**
+- Briefy-style provider abstraction: `chat(system, user)` dispatches by `OLYX_LLM_PROVIDER`
+  (ollama default | anthropic | openai | offline) via raw HTTP. Demo default = **Ollama
+  `llama3.1:8b`** (Briefy's benchmarked gold-standard local model; already pulled on this box).
+- **Dropped the `anthropic` SDK dep** — all providers are raw `requests` calls, like Briefy.
+- Fail-silent contract: `chat()` returns **None on every failure** (timeout, no key, model down,
+  bad provider, empty content) → copilot degrades to raw facts. `health()` badge for the UI.
+- temperature 0 + fixed seed for max reproducibility (NOT a guarantee — see limitations).
+- `tests/test_llm.py`: 8 mocked tests (request shape, all fail-silent paths, no-key, health) +
+  1 opt-in live test (`OLYX_LIVE_LLM=1`).
+
+**Why local-first:** user has no Anthropic key. Ollama runs offline, no egress, no cost. Swapping to
+a cloud key later = one env var (`OLYX_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`).
+
+**Limitations (deliberately accepted; documented for PITCH):**
+1. **Not deterministic.** Even temp 0 + seed, local generation can vary (kv-cache/threads). So the
+   determinism *guarantee* stays on the compute layer; narration is allowed to vary → we test
+   plumbing + fail-safe, NOT prose (golden/property tests are wrong here).
+2. **Can mis-narrate.** An 8B model may phrase poorly or cite a number not in the facts. Mitigation:
+   prompt says "use ONLY these numbers" + copilot shows the raw facts beside the prose (Phase 4b).
+   The LLM is a convenience layer, never the source of truth.
+3. **Latency ~2.5–6s** (cold loads ~5GB) → needs a spinner (Phase 5); not rapid-fire.
+4. **Resource/portability:** needs Ollama + ~5GB RAM → live test skipped in CI; mocked tests are the
+   real coverage.
+5. **No streaming** in the slice (stream:false).
+
+**Test:** `pytest tests/test_llm.py` → 8 passed, 1 skipped. Live: health ok, llama3.1:8b cited
+"1165.26 EUR/MT, 2.1%" correctly in 6.1s.
+
+**Status:** ✅ committing Phase 4a. Next: Phase 4b — `copilot.py` (routing → facts → narrate; inbox).

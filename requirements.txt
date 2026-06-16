@@ -3,7 +3,6 @@ pandas
 numpy
 plotly
 requests
-anthropic
 pyarrow
 pytest
 hypothesis
