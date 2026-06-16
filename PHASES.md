@@ -401,4 +401,28 @@ borders + gradient, mono uppercase eyebrow headers (cyan), boxed metrics, darker
 chat/dataframe. No dependency, no iframe/React fight; degrades gracefully if a testid drifts.
 AppTest: no exception. (→ PITCH "Cut": evaluated st_tailwind, chose stdlib CSS.)
 
-**Status:** ✅ committing Phase 5c. Next: Phase 6 — `PITCH.md`.
+**Status:** ✅ committed `7dfed35`.
+
+## Phase 5d — Perf (instant load + bg refresh), layout & SOTA polish (Chrome-verified)
+
+**Perf (the big UX fix):** load was blocking ~90s on every load AND refresh because the cache was
+TTL-gated. Now: **serve the parquet cache instantly** (sub-second), fetch synchronously only on the
+very first run when no cache exists; **manual refresh runs in a daemon thread** and an
+`st.fragment(run_every=2)` watcher swaps in the new data **silently** when it lands.
+
+**Layout:** Pulse and Forward Curve are now **full-width stacked** (both big/readable, chart 420px).
+Inbox is a **Gmail-style mock** (unread dots, sender/subject/snippet/time, per-email asset + sentiment
+chips, net read, AI digest) — Briefy-style. Wider sidebar (380px) + bigger chat input.
+
+**Polish (driven by Chrome DevTools MCP screenshots):** sans body + mono numbers (config `font`),
+gradient title, semantic palette (cyan accent · emerald up/fresh · rose down/sell/stale · amber
+projection), compact colored hero rows, card hover/shadow, styled scrollbars, colored verdict, and
+the Pulse board sorted **freshest-first** with green ▲ / rose ▼ via a pandas Styler (2-dp prices).
+
+**Fixes found visually:** Pulse was sorted stalest-first (→ freshest-first); `last_price` showed 6
+decimals under the Styler (→ `{:,.2f}`); naive sentiment matched substrings ("prices"→rise,
+"sellers"→sell) → **word-boundary, directional-only lexicon** (Klaas now correctly Bullish).
+
+**Verified** via Chrome MCP across multiple screenshots; 84 tests pass.
+
+**Status:** ✅ committing Phase 5d. Next: Phase 6 — `PITCH.md`.

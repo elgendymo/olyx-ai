@@ -299,13 +299,18 @@ def answer(query, df):
 
 
 # ── inbox sentiment mock (5.1) ──────────────────────────────────────
-_BULL = ("up", "rise", "rising", "surge", "shortage", "delay", "tight", "rally", "bid", "demand", "buy")
-_BEAR = ("down", "fall", "falling", "drop", "oversupply", "glut", "weak", "dump", "offer", "sell", "crash")
+# Directional words only, matched on word boundaries — avoids "prices"->rise, "sellers"->sell,
+# "offers"->offer false positives that plagued naive substring counting.
+_BULL = ("rise", "rising", "rises", "surge", "surging", "shortage", "tight", "tightening",
+         "rally", "rallying", "firmer", "strong", "squeeze", "spike")
+_BEAR = ("fall", "falling", "drop", "dropping", "oversupply", "glut", "weak", "soft",
+         "softer", "discount", "lower", "crash", "drift", "drifting")
+_BULL_RE = re.compile(r"\b(?:" + "|".join(_BULL) + r")\b", re.I)
+_BEAR_RE = re.compile(r"\b(?:" + "|".join(_BEAR) + r")\b", re.I)
 
 
 def _naive_sentiment(text):
-    t = text.lower()
-    b, s = sum(t.count(w) for w in _BULL), sum(t.count(w) for w in _BEAR)
+    b, s = len(_BULL_RE.findall(text)), len(_BEAR_RE.findall(text))
     if b == s:
         return "Neutral"
     return "Bullish" if b > s else "Bearish"

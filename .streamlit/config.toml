@@ -2,10 +2,13 @@
 [theme]
 base = "dark"
 primaryColor = "#22d3ee"
-backgroundColor = "#0b1220"
-secondaryBackgroundColor = "#121a2b"
-textColor = "#e2e8f0"
-font = "monospace"
+backgroundColor = "#0a0b0e"
+secondaryBackgroundColor = "#111214"
+textColor = "#e7e9ee"
+font = "sans serif"           # sans for body/headers; mono reserved for labels + numbers (via CSS)
 
 [server]
 headless = true
+
+[browser]
+gatherUsageStats = false
