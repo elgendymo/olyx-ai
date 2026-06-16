@@ -206,6 +206,31 @@ def _route(query, df):
 
     if intent == "freshness":
         lat = analytics.latest_with_freshness(df)
+
+        # Feed-level age query — "how old is the data?", "is the feed stale?", "data age?"
+        # Return aggregate stats, not a per-instrument list.
+        _feed_age_q = ("how old", "age of", "data age", "feed age", "feed old", "feed stale",
+                       "how stale", "when was", "last update", "last refresh", "data fresh",
+                       "is the data", "is data", "feed delay", "feed lag")
+        if not product and any(w in q for w in _feed_age_q):
+            now_ts = analytics.feed_now(df)
+            n_total = len(lat)
+            n_stale = int(lat["is_stale"].sum())
+            n_fresh = n_total - n_stale
+            oldest_h = round(float(lat["freshness_sec"].max()) / 3600, 1) if n_total else None
+            newest_h = round(float(lat["freshness_sec"].min()) / 3600, 2) if n_total else None
+            stalest = lat.sort_values("freshness_sec", ascending=False).iloc[0] if n_total else None
+            return intent, {
+                "intent": "feed_age",
+                "feed_newest_utc": str(now_ts)[:16],
+                "total_instruments": n_total,
+                "fresh": n_fresh,
+                "stale": n_stale,
+                "newest_lag_hours": newest_h,
+                "oldest_lag_hours": oldest_h,
+                "stalest_instrument": stalest["product_name"] if stalest is not None else None,
+            }
+
         if product:
             lat = lat[lat["product_name"] == product]
         elif any(w in q for w in ("highest", "most expensive", "maximum", "max price", "biggest price")):
@@ -304,6 +329,12 @@ def _facts_to_text(facts):
         return "; ".join(f"{i['instrument']} ({i['currency']}) VWAP "
                          f"{i['vwap'] if i['vwap'] is not None else 'n/a (zero volume)'}"
                          for i in items[:5])
+    if intent == "feed_age":
+        f = facts
+        return (f"Feed newest packet: {f['feed_newest_utc']} UTC. "
+                f"{f['fresh']}/{f['total_instruments']} instruments fresh, {f['stale']} stale. "
+                f"Freshest lag: {f['newest_lag_hours']}h. "
+                f"Oldest lag: {f['oldest_lag_hours']}h ({f['stalest_instrument']}).")
     if intent == "freshness":
         items = facts["instruments"]
         if not items:
