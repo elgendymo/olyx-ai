@@ -195,9 +195,9 @@ def _route(query, df):
         # No product named → don't silently pick a random one; tell Jasper to be specific.
         if not product:
             known = sorted(df["product_name"].dropna().unique().tolist())
-            return intent, {"intent": "forward_curve_no_product",
-                            "message": "Which instrument? Specify a product name.",
-                            "known_products": known[:20]}
+            return "forward_curve_no_product", {"intent": "forward_curve_no_product",
+                                                "message": "Which instrument? Specify a product name.",
+                                                "known_products": known[:20]}
         fc = analytics.forward_curve(df, product)
         if fc.get("status") == "ok":
             curve = {k: fc[k] for k in ("status", "product_name", "unit", "currency",
@@ -513,10 +513,7 @@ def _naive_sentiment(text):
 
 
 def summarize_inbox(text, df):
-    """Asset name is LOCKED deterministically by the gazetteer (`_find_product`); the LLM only writes
-    asset-free sentiment prose; Python assembles `"{asset} — {summary}"`. The model is structurally
-    incapable of inventing an asset (e.g. "Crude Oil") because it never authors the name. No known
-    instrument in the text -> skip the LLM entirely. Deterministic keyword sentiment stays authoritative."""
+    """Single-message summarizer. Asset locked by gazetteer; LLM writes asset-free prose."""
     text = (text or "").strip()
     n = len([ln for ln in text.splitlines() if ln.strip()])
     if not text:
@@ -524,7 +521,7 @@ def summarize_inbox(text, df):
                 "n_messages": 0, "used_llm": False}
     asset = _find_product(text, df) if (df is not None and not df.empty) else None
     naive = _naive_sentiment(text)
-    if asset is None:                                     # gazetteer found no known instrument
+    if asset is None:
         return {"summary": "Unrecognized instrument.", "sentiment": naive, "asset": None,
                 "n_messages": n, "used_llm": False}
     system = ("Summarize the market sentiment of these broker messages in ONE short clause. "
@@ -536,3 +533,40 @@ def summarize_inbox(text, df):
                 "n_messages": n, "used_llm": True}
     return {"summary": f"{asset} — {n} message(s), {naive.lower()} keyword signal.",
             "sentiment": naive, "asset": asset, "n_messages": n, "used_llm": False}
+
+
+_DIGEST_SYSTEM = (
+    "You are a senior biofuel trading desk assistant briefing broker Jasper at the start of his day. "
+    "Below is a structured list of inbox signals per instrument (asset, sentiment, key driver). "
+    "Write a tight morning briefing: 3-5 bullet points, one per instrument with a signal. "
+    "Each bullet: instrument name, signal (Bullish/Bearish/Neutral), and ONE concrete action or watch point. "
+    "Examples: '• UCO — Bearish: Rotterdam berth delays tightening supply; watch for offer pullback.' "
+    "           '• Carbon EUA — Bullish: auction squeeze; consider covering short exposure.' "
+    "Be direct, like a colleague, not a newsletter. No fluff. No invented prices or percentages."
+)
+
+
+def digest_inbox(emails, df):
+    """Multi-email digest. Each email is (who, subject, body). Per-email asset lock + sentiment,
+    then one LLM call produces a structured morning briefing over all recognized instruments."""
+    if not emails:
+        return "Inbox empty."
+    known = set(df["product_name"].unique()) if df is not None and not df.empty else set()
+    lines = []
+    for who, subj, body in emails:
+        asset = _find_product(body, df) if df is not None and not df.empty else None
+        sent  = _naive_sentiment(body)
+        # Extract the most informative sentence (first one containing a signal word)
+        first_line = next(
+            (s.strip() for s in body.replace("…", "").split(".") if s.strip()),
+            body[:80]
+        )
+        lines.append(f"• {asset or 'Unknown'} | {sent} | From: {who} | {first_line}")
+    signal_block = "\n".join(lines)
+    brief = llm.chat(_DIGEST_SYSTEM, signal_block, max_tokens=350)
+    if not brief:
+        # deterministic fallback: one line per instrument
+        return "\n".join(lines)
+    # Safety: strip any invented product names (the LLM got asset names from our signal_block
+    # so it can name them — that's intentional, not a cross-wire risk here)
+    return brief

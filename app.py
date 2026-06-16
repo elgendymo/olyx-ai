@@ -303,6 +303,7 @@ with st.container(border=True):
     bear = sum(copilot._naive_sentiment(b) == "Bearish" for *_, b in MOCK_EMAILS)
     st.caption(f"Net read: 🟢 {bull} bullish · 🔴 {bear} bearish across 6 unread.")
     if digest:
-        with st.spinner("Summarizing…"):
-            res = copilot.summarize_inbox("\n".join(b for *_, b in MOCK_EMAILS), df)
-        st.info(f"**AI digest** — {res['summary']}")
+        with st.spinner("Generating morning briefing…"):
+            brief = copilot.digest_inbox([(w, s, b) for w, _, s, b in MOCK_EMAILS], df)
+        st.markdown("**🌅 Morning briefing**")
+        st.markdown(brief)
