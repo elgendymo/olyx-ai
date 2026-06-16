@@ -28,10 +28,71 @@ _SYSTEM = (
 )
 
 _INTENTS = [
-    ("dislocations", ("dislocat", "opportunit", "disagree", "spread", "arb", "mispric", "contradict")),
-    ("forward_curve", ("curve", "forecast", "sell", "forward", "project", "trend", "trajectory", "outlook")),
-    ("vwap", ("vwap", "weighted", "average", "avg")),
-    ("freshness", ("fresh", "stale", "lag", "latest", "price", "quote", "pulse", "now")),
+    # ── Pricing dislocations / arbitrage ────────────────────────────
+    # Covers: "any arb?", "spread on UCO?", "mismatch", "source disagreement", z-score spikes
+    ("dislocations", (
+        "dislocat", "opportunit", "disagree", "mispric", "contradict",
+        # arb / spread shorthand
+        "arb", "arbitrage", "any arb", "trade on", "exploit",
+        "spread", "basis", "basis risk", "calendar spread", "inter-market",
+        "tight", "loose", "widening", "narrowing", "compression",
+        # source conflict
+        "source conflict", "cross", "mismatch", "diverge", "divergence",
+        # z-score / outlier
+        "outlier", "spike", "anomal", "z-score", "sigma", "deviation", "abnormal",
+        # opportunity queue
+        "opportunity queue", "queue", "attention", "flag", "alert",
+    )),
+
+    # ── Forward curve / timing ───────────────────────────────────────
+    # Covers: "is SAF in contango?", "good time to sell?", "backwardation?", "project 90d"
+    ("forward_curve", (
+        "curve", "forecast", "forward", "project", "trajectory", "outlook",
+        # timing questions
+        "sell", "selling", "when to sell", "good time", "right time", "timing",
+        "hold", "holding", "wait", "defer", "roll",
+        # curve shape
+        "contango", "backwardation", "term structure", "shape",
+        "uptrend", "downtrend", "flat", "slope", "direction",
+        # horizon
+        "30 day", "60 day", "90 day", "30d", "60d", "90d",
+        "next month", "next quarter", "q1", "q2", "q3", "q4",
+        # projections
+        "expect", "prediction", "target", "price target",
+        "seasonal", "seasonality", "end of year", "eoy",
+    )),
+
+    # ── VWAP / volume-weighted average ──────────────────────────────
+    # Covers: "VWAP for UCO", "volume weighted", "fair value"
+    ("vwap", (
+        "vwap", "weighted", "average price", "avg price",
+        "volume weighted", "fair value", "benchmark", "reference price",
+        "market average", "mid", "midpoint",
+    )),
+
+    # ── Latest prices / freshness / pulse ───────────────────────────
+    # Covers: "what's UCO trading at?", "HVO quote?", "any fresh data?", highest/lowest
+    ("freshness", (
+        "fresh", "stale", "lag", "latest", "last price", "last quote",
+        "quote", "pulse", "now", "current", "live", "real-time",
+        # price queries
+        "price", "pricing", "what is", "how much", "rate", "level",
+        "bid", "offer", "ask", "indicative",
+        # high / low
+        "highest", "lowest", "most expensive", "cheapest",
+        "maximum", "minimum", "max price", "min price",
+        "top price", "bottom price", "best price",
+        # product shorthands (brokers type these alone: "uco?", "rme?")
+        "uco", "hvo", "rme", "pome", "tallow", "hbe", "hbe-o",
+        "saf", "hefa", "saf hefa", "etha", "emethanol",
+        "biomethane", "ttf", "go wind", "go solar", "carbon eua", "eua",
+        "ucome", "glycerine", "crude glycerine",
+        # data quality
+        "data", "feed", "update", "old", "age", "behind", "delay",
+        "how old", "when was", "last seen",
+        # compliance products often asked by price
+        "thg", "ere", "certificate", "credit",
+    )),
 ]
 
 _CACHE = {}
@@ -144,8 +205,14 @@ def _route(query, df):
         return intent, {"intent": intent, "instruments": items}
 
     return "help", {"intent": "help", "capabilities": [
-        "latest prices & freshness", "pricing dislocations / opportunities",
-        "VWAP per instrument", "forward curve / is-now-a-good-time-to-sell"]}
+        "latest price / quote for any instrument (UCO, HVO, SAF, RME, POME, tallow, biomethane, EUA…)",
+        "highest / lowest price across all products",
+        "pricing dislocations, arb opportunities, source spread, z-score spikes",
+        "VWAP / volume-weighted average / fair value per instrument",
+        "forward curve, contango/backwardation, sell-timing signal (30/60/90d)",
+        "data freshness — stale flags, feed lag, last-seen age",
+        "inbox summarisation — paste any broker message or cargo offer",
+    ]}
 
 
 # ── number grounding (#1) ───────────────────────────────────────────
