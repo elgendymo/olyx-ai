@@ -209,4 +209,31 @@ a cloud key later = one env var (`OLYX_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_
 **Test:** `pytest tests/test_llm.py` → 8 passed, 1 skipped. Live: health ok, llama3.1:8b cited
 "1165.26 EUR/MT, 2.1%" correctly in 6.1s.
 
-**Status:** ✅ committing Phase 4a. Next: Phase 4b — `copilot.py` (routing → facts → narrate; inbox).
+**Status:** ✅ committed `aff7dd7`.
+
+## Phase 4b — `copilot.py` (compute≠narrate + inbox sentiment)
+
+**Done**
+- `answer(query, df)`: explicit keyword routing (7A) → deterministic facts dict (via analytics) →
+  `llm.chat` narrates with a "use ONLY these numbers" system prompt. Returns
+  `{answer, facts, intent, used_llm}` — UI shows answer AND facts (verifiable receipt).
+- LLM-offline fallback: `_facts_to_text` renders the same facts deterministically, so the copilot
+  always answers and still cites numbers. Cached on `(query, facts)` → repeats skip the LLM.
+- `summarize_inbox`: LLM summary + deterministic `_naive_sentiment` keyword tilt (authoritative
+  label + offline fallback).
+- `tests/test_copilot.py`: 14 tests — routing, product detection, narrate-vs-fallback, caching,
+  empty short-circuit, facts determinism, inbox bullish/bearish/empty/llm.
+
+**Test:** `pytest tests/` → **70 passed, 1 skipped**. Live (real data + llama3.1:8b): "arb
+opportunities?" → cited RME 19% / SAF HEFA 8.57% spreads; inbox sentiment narrated.
+
+**Live findings (loop) — 2 real issues to address next:**
+1. 🔴 **Forward curve / VWAP have NO per-instrument outlier rejection.** Live HVO curve included a
+   274,714 EUR/MT spike (instrument trades ~1,800) — a deliberate feed outlier that passes validate
+   (<price_max) then skews the daily-mean curve; the LLM narrated the garbage. SRS §5.3 wants noise
+   filtering. → propose robust aggregation (median/MAD winsorize) before curve & VWAP. **DECISION PENDING.**
+2. 🟡 **Small-model inbox sentiment is unreliable** — llama3.1:8b hallucinated "Bearish on Crude Oil"
+   (not in the text) vs naive "Bullish". Expected (Phase 4a limitation); naive label stays
+   authoritative; PITCH "Truth" entry. Optional: prompt tweak "name only assets in the messages".
+
+**Status:** ✅ committing Phase 4b. Next: decide outlier handling, then Phase 5 (UI wiring).
