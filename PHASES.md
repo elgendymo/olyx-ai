@@ -253,5 +253,43 @@ slope −1.46, 90d projection 1747 — sane. Copilot now narrates realistic numb
 
 **Test:** `pytest tests/` → **73 passed, 1 skipped**.
 
-**Status:** ✅ committing Phase 4c. Next: Phase 5 — wire the Streamlit UI (charts, dislocations,
-inbox, copilot tabs) + analytics cache-by-token.
+**Status:** ✅ committed `2c28295`.
+
+## Phase 4d — LLM output quality (4 levers)
+
+**Done**
+- **#2 tight facts** — per intent, hand the model 1-3 labeled, unit-tagged numbers (curve trimmed to
+  current_price/slope/recommendation/projections/low/high; no 90-row history) instead of raw rows.
+- **#3 deterministic verdict** — `forward_curve` now returns `current_price` + `recommendation`
+  (downtrend/uptrend/flat from projected change); the LLM phrases the verdict, doesn't decide it.
+- **#4 prompt hardening** — "use ONLY FACTS numbers, no invented assets/dates, base timing on
+  recommendation, never compute".
+- **#1 number-grounding verifier** — `_is_grounded`: extract every number from the narration (dates
+  stripped first), require each to match a facts number within tolerance (2% / 0.5), compared on
+  magnitude (sign often in words). Ungrounded narration → rejected → deterministic fallback.
+  `answer()` returns `grounded`; `used_llm = grounded`.
+- **#5 model bake-off** → switched default `llama3.1:8b` → **`qwen2.5:7b`**.
+
+**Bake-off (our prompts, real facts):**
+| model | speed | quality |
+|---|---|---|
+| **qwen2.5:7b** | ~7s | **best** — correctly read "2 opportunities: TTF 6.87%, HVO IV 4.2%", articulate |
+| llama3.1:8b | ~6s | misread the dislocation count ("no opportunities" when 2) — grounded but WRONG |
+| qwen2.5:3b | ~1-2s | fast, terse, fine on simple Qs; fumbles nuance |
+| gemma4 | 12-19s | empty once; cut |
+
+**Bugs caught while building (loop):**
+- Verifier regex dropped the leading minus → false-rejected llama's real `-0.8712` slope. Fixed:
+  capture `-?`, compare on magnitude.
+- Month-name date regex `dec[a-z]*` ate **"dec-lining"** inside "declining" → corrupted a number →
+  false reject. Fixed: whole-word month names (`\b…\b`).
+- Renamed `age_min`→`age_minutes` (model misread minutes as days live).
+
+**The honest residual risk (PITCH Truth):** grounding stops fabricated *numbers*, NOT
+*misinterpretation* — llama cited the real "2" and still concluded "no opportunities". No prompt or
+8B fixes that; the facts receipt stays on screen so Jasper verifies meaning, not just digits.
+
+**Test:** `pytest tests/` → **78 passed, 1 skipped**. Live (qwen2.5:7b): dislocations read
+correctly + grounded; bad curve narration auto-rejected → clean deterministic fallback.
+
+**Status:** ✅ committing Phase 4d. Next: Phase 5 — wire Streamlit UI + analytics cache-by-token.

@@ -61,11 +61,47 @@ def test_falls_back_to_facts_text_when_llm_offline(monkeypatch):
     assert res["facts"]["intent"] == "freshness"
 
 
-def test_uses_llm_narration_when_available(monkeypatch):
+def test_uses_llm_narration_when_grounded(monkeypatch):
     monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: "UCO last traded at 1234.5 EUR.")
     df = _frame([{"price": 1234.5}])
     res = copilot.answer("latest price?", df)
-    assert res["used_llm"] is True and res["answer"] == "UCO last traded at 1234.5 EUR."
+    assert res["used_llm"] is True and res["grounded"] is True
+    assert res["answer"] == "UCO last traded at 1234.5 EUR."
+
+
+def test_rejects_ungrounded_narration(monkeypatch):
+    # the model invents 9999.99 (not in facts) -> reject, fall back to deterministic text
+    monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: "UCO is screaming up to 9999.99 EUR!")
+    df = _frame([{"price": 1234.5}])
+    res = copilot.answer("latest price?", df)
+    assert res["used_llm"] is False and res["grounded"] is False
+    assert "1234.5" in res["answer"] and "9999.99" not in res["answer"]
+
+
+def test_grounding_ignores_dates(monkeypatch):
+    monkeypatch.setattr(copilot.llm, "chat",
+                        lambda *a, **k: "As of 2026-06-01, UCO sits at 1234.5 EUR.")
+    res = copilot.answer("latest price?", _frame([{"price": 1234.5}]))
+    assert res["grounded"] is True            # 2026/06/01 are dates, not bogus numbers
+
+
+def test_grounding_tolerates_rounding(monkeypatch):
+    monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: "UCO at 1165.3 EUR.")
+    res = copilot.answer("latest price?", _frame([{"price": 1165.26}]))
+    assert res["grounded"] is True            # 1165.3 ≈ 1165.26 within tolerance
+
+
+def test_is_grounded_handles_negative_and_signless():
+    facts = {"slope": -0.8712, "price": 1805.92}
+    assert copilot._is_grounded("slope -0.8712 per day, price 1805.92", facts)
+    assert copilot._is_grounded("declining 0.8712/day at 1805.92", facts)   # sign in words
+    assert not copilot._is_grounded("price is 9999.0", facts)               # fabricated
+
+
+def test_qualitative_answer_is_grounded(monkeypatch):
+    monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: "Prices look broadly stable.")
+    res = copilot.answer("latest price?", _frame([{"price": 1234.5}]))
+    assert res["grounded"] is True            # no numbers to verify
 
 
 def test_answer_caches_on_query_and_facts(monkeypatch):

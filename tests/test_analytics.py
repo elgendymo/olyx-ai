@@ -146,6 +146,7 @@ def test_forward_curve_positive_slope_projects_up():
     fc = analytics.forward_curve(_frame(rows), "UCO", unit="MT", currency="EUR", horizons=(30,))
     assert fc["status"] == "ok" and fc["slope_per_day"] > 0
     assert fc["projections"][0]["price"] > fc["history"][-1]["price"]
+    assert "uptrend" in fc["recommendation"] and fc["current_price"] == fc["history"][-1]["price"]
 
 
 def test_forward_curve_clamps_negative_projection_to_zero():

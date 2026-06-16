@@ -178,9 +178,16 @@ def forward_curve(df, product, unit=None, currency=None, horizons=None, window_d
                             "lo": round(max(float(p - band), 0.0), 2),
                             "hi": round(max(float(p + band), 0.0), 2)})
 
+    current = round(float(daily.iloc[-1]), 2)
+    chg = (projections[-1]["price"] - current) / current if current else 0.0
+    recommendation = ("downtrend — selling sooner likely beats waiting" if chg <= -0.02
+                      else "uptrend — holding may capture upside" if chg >= 0.02
+                      else "flat — no strong timing signal")
     return {
         "status": "ok", "product_name": product, "unit": unit, "currency": currency,
-        "slope_per_day": round(float(slope), 4), "n_days": int(len(daily)),
+        "current_price": current, "slope_per_day": round(float(slope), 4),
+        "recommendation": recommendation, "n_days": int(len(daily)),
+        "low": round(float(daily.min()), 2), "high": round(float(daily.max()), 2),
         "history": [{"date": d.date().isoformat(), "price": round(float(v), 2)}
                     for d, v in daily.items()],
         "projections": projections,

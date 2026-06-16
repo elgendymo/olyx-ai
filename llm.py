@@ -30,10 +30,12 @@ PROVIDER = os.environ.get("OLYX_LLM_PROVIDER", "ollama").lower()
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 TIMEOUT = float(os.environ.get("OLYX_LLM_TIMEOUT", "60"))
 
-_DEFAULT_MODEL = {"ollama": "llama3.1:8b",            # Briefy's tested gold-standard local model
+# qwen2.5:7b beat llama3.1:8b in our narration bake-off (correctly read the dislocation count;
+# more articulate). Briefy preferred llama3.1:8b for TOOL-CALLING/JSON — different job. Swap via env.
+_DEFAULT_MODEL = {"ollama": "qwen2.5:7b",
                   "anthropic": "claude-haiku-4-5-20251001",
                   "openai": "gpt-4o-mini"}
-MODEL = os.environ.get("OLYX_LLM_MODEL") or _DEFAULT_MODEL.get(PROVIDER, "llama3.1:8b")
+MODEL = os.environ.get("OLYX_LLM_MODEL") or _DEFAULT_MODEL.get(PROVIDER, "qwen2.5:7b")
 
 
 # ── provider adapters (same shape; raw HTTP like Briefy) ────────────
