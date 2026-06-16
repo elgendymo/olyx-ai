@@ -121,18 +121,26 @@ def _route(query, df):
         vw = analytics.vwap(df)
         if product:
             vw = vw[vw["product_name"] == product]
+        else:
+            vw = vw.sort_values("vwap", ascending=False)
         items = [{"instrument": r["product_name"], "currency": r["currency"], "unit": r["unit"],
                   "vwap": (r["vwap"] if r["vwap"] == r["vwap"] else None), "n": int(r["n"])}
-                 for r in vw.head(8).to_dict("records")]
+                 for r in vw.head(20).to_dict("records")]
         return intent, {"intent": intent, "instruments": items}
 
     if intent == "freshness":
         lat = analytics.latest_with_freshness(df)
         if product:
             lat = lat[lat["product_name"] == product]
+        elif any(w in q for w in ("highest", "most expensive", "maximum", "max price", "biggest price")):
+            lat = lat.sort_values("last_price", ascending=False)
+        elif any(w in q for w in ("lowest", "cheapest", "minimum", "min price", "smallest price")):
+            lat = lat.sort_values("last_price", ascending=True)
+        else:
+            lat = lat.sort_values("freshness_sec", ascending=True)   # freshest first (default)
         items = [{"instrument": r["product_name"], "price": r["last_price"], "currency": r["currency"],
                   "unit": r["unit"], "age_minutes": round(r["freshness_sec"] / 60, 1),
-                  "stale": bool(r["is_stale"])} for r in lat.head(6).to_dict("records")]
+                  "stale": bool(r["is_stale"])} for r in lat.head(20).to_dict("records")]
         return intent, {"intent": intent, "instruments": items}
 
     return "help", {"intent": "help", "capabilities": [
