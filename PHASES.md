@@ -347,4 +347,25 @@ hard guarantee. And rejected a hard `[SELL]` imperative (oversells a linear fit)
 **84 passed.** Live: "sell HVO Class II?" → "[SELL SIGNAL] downtrend, -14.8% projected 90d. …price
 2195.69, range 1510.87–2195.69, VWAP 1972.55." — coherent, no contradiction.
 
-**Status:** ✅ committing Phase 4f. Next: Phase 5 — UI wiring (verdict headline + facts receipt).
+**Status:** ✅ committed `3f2dca4`.
+
+## Phase 5 — Streamlit UI wiring
+
+**Done** — `app.py` is now the full dashboard over the tested engines (it computes nothing):
+- **Cache-by-token (14A):** `load_bulk()` fetches the 50k frame once per TTL; `view_*` analytics are
+  `@st.cache_data` keyed on the cheap `fetched_at` token (not the hashed df) → tab switches don't
+  recompute and don't refetch.
+- **Header:** instruments / newest-packet / stale metrics, LLM provider+model health badge, Refresh.
+- **Pulse:** instrument selectbox → plotly dark chart (daily price + VWAP line + dashed projection),
+  deterministic `[SIGNAL]` verdict line, latest-quote table with feed-relative age (C2).
+- **Opportunities:** volume-gated dislocation table, tradeable-first, 🔴/⚪ priority + signal column.
+- **Inbox:** textarea → asset-locked summary + sentiment badge.
+- **Copilot:** `st.chat_input` + `session_state` history; each answer shows a verified/deterministic
+  tag and an expandable **facts receipt** (the source of truth beside the prose).
+
+**Verified headless** with Streamlit `AppTest` (catches API errors a boot check can't): no render
+exception on initial load OR after a chat turn; 4 tabs/metrics render; copilot path appends turns
+and renders the deterministic answer. Fixed deprecated `use_container_width` → `width="stretch"`.
+README run steps updated (`ollama pull qwen2.5:7b`, env swaps).
+
+**Status:** ✅ committing Phase 5. Next: Phase 6 — `PITCH.md` (pitch / cut / truth).

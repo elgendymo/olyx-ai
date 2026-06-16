@@ -15,10 +15,13 @@ Streamlit + pandas/numpy + plotly, Anthropic SDK for the copilot. Single-user, n
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # add ANTHROPIC_API_KEY
+ollama pull qwen2.5:7b   # local copilot model — no API key needed (default provider)
 streamlit run app.py
-python -m pytest       # math + resilience tests
+python -m pytest         # math + resilience + property + copilot tests
 ```
+LLM is swappable via env (no key needed for the local default):
+`OLYX_LLM_PROVIDER=ollama|anthropic|openai`, `OLYX_LLM_MODEL=…`. Cloud providers read
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`. The feed endpoint is one env var: `FEED_BASE_URL`.
 
 ## Layout
 - `feed.py` — ingest (stream `/feed/bulk` as NDJSON), retry/backoff, cache-as-last-good, pure `validate()`
