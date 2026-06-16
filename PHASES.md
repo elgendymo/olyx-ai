@@ -368,4 +368,21 @@ exception on initial load OR after a chat turn; 4 tabs/metrics render; copilot p
 and renders the deterministic answer. Fixed deprecated `use_container_width` → `width="stretch"`.
 README run steps updated (`ollama pull qwen2.5:7b`, env swaps).
 
-**Status:** ✅ committing Phase 5. Next: Phase 6 — `PITCH.md` (pitch / cut / truth).
+**Status:** ✅ committed `8fa24ff`.
+
+## Phase 5b — Single-glance redesign (Briefy-style, no tabs)
+
+UX critique: tabs contradicted the "dislocations **surfaced**" thesis (the opportunity queue was
+hidden behind a click) and the copilot wasn't a persistent presence. Restructured:
+- **Persistent copilot in the sidebar** (always visible beside the data; closest Streamlit gets to
+  Briefy's docked assistant) — chat history + facts receipt + refresh live there.
+- **No tabs.** Main column is one glance, top-down by urgency: loud **STALE banner** → metrics →
+  **🎯 NEEDS ATTENTION NOW** hero (tradeable dislocations = the opportunity queue) → **PULSE** board
+  (price · age · ▲/▼ vs VWAP) beside the **FORWARD CURVE** chart + verdict → **INBOX** card.
+- `st.container(border=True)` cards with mono eyebrow headers (Briefy calm-card feel within
+  Streamlit's limits — no pixel-match without leaving Streamlit, which we won't for a 6h slice).
+
+**Verified headless** (AppTest): no exception on load or after a sidebar-chat turn; sidebar
+chat_input works; all four section cards render. 84 tests pass.
+
+**Status:** ✅ committing Phase 5b. Next: Phase 6 — `PITCH.md`.
