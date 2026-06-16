@@ -6,6 +6,7 @@ back to facts-text verbatim when the LLM returns None, narrates when it doesn't,
 import pandas as pd
 import pytest
 
+import analytics
 import copilot
 import feed
 
@@ -102,6 +103,31 @@ def test_qualitative_answer_is_grounded(monkeypatch):
     monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: "Prices look broadly stable.")
     res = copilot.answer("latest price?", _frame([{"price": 1234.5}]))
     assert res["grounded"] is True            # no numbers to verify
+
+
+# ── curve: deterministic verdict + verified, advice-free translation ─
+def _curve_df(prices):
+    return _frame([{"price": p, "volume": 100, "timestamp": f"2026-06-0{i+1}T08:00:00Z"}
+                   for i, p in enumerate(prices)])
+
+
+def test_curve_verdict_deterministic_and_bans_directional(monkeypatch):
+    monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: "You should HOLD UCO for the upside.")
+    res = copilot.answer("is now a good time to sell UCO?", _curve_df([200, 180, 160, 140, 120]))
+    assert res["intent"] == "forward_curve"
+    assert res["answer"].startswith("[SELL SIGNAL]")     # downtrend, deterministic verdict
+    assert res["used_llm"] is False                       # directional words -> translation rejected
+    assert "HOLD" not in res["answer"] and "should" not in res["answer"].lower()
+
+
+def test_curve_accepts_clean_grounded_translation(monkeypatch):
+    df = _curve_df([200, 180, 160, 140, 120])
+    cur = analytics.forward_curve(df, "UCO", unit="MT", currency="EUR")["current_price"]
+    monkeypatch.setattr(copilot.llm, "chat",
+                        lambda *a, **k: f"UCO sits at {cur} EUR, toward the lower part of its range.")
+    res = copilot.answer("good time to sell UCO?", df)
+    assert res["used_llm"] is True and str(cur) in res["answer"]
+    assert res["answer"].startswith("[SELL SIGNAL]")
 
 
 # ── single-asset isolation (the cross-wire fix) ─────────────────────

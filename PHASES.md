@@ -325,4 +325,26 @@ the model garbled the verdict. The deterministic `recommendation` field is unamb
 show the deterministic recommendation verbatim as the headline; LLM prose is color only, never the
 verdict.
 
-**Status:** ✅ committing Phase 4e. Next: Phase 5 — UI wiring (+ surface deterministic verdict).
+**Status:** ✅ committed `d6a8b90`.
+
+## Phase 4f — Verdict/translation split (kills the contradictory sell answer)
+
+The 4e residual (LLM garbled the sell verdict) was a visible trust-killer. Fix: **separate the
+verdict from the translation** for the curve intent.
+- **Verdict (deterministic):** `[SELL SIGNAL|HOLD SIGNAL|NEUTRAL] <trend>, <±pct>% projected Nd` —
+  computed from the curve, framed as a SIGNAL not a command (it's a linear fit, not an oracle).
+- **Translation (LLM):** states ONLY the grounded numbers (price/range/VWAP), with directional words
+  (buy/sell/hold/should/momentum/upside…) **forbidden AND verified** (`_DIRECTIONAL` regex rejects
+  them — prompt + enforce, since tone evades number-grounding). Added the instrument's VWAP to curve
+  facts so the translation has a concrete grounded delta to state.
+- Rejected translation / offline → deterministic state sentence. Verdict always shown.
+
+**Critically rejected** the reviewer's claim that banning words makes contradiction "physically
+impossible" — word-bans cut explicit verdicts, not tonal implication; only number-grounding is a
+hard guarantee. And rejected a hard `[SELL]` imperative (oversells a linear fit) → "SELL SIGNAL".
+
+**Tests:** +2 (verdict deterministic + directional translation rejected; clean translation accepted).
+**84 passed.** Live: "sell HVO Class II?" → "[SELL SIGNAL] downtrend, -14.8% projected 90d. …price
+2195.69, range 1510.87–2195.69, VWAP 1972.55." — coherent, no contradiction.
+
+**Status:** ✅ committing Phase 4f. Next: Phase 5 — UI wiring (verdict headline + facts receipt).

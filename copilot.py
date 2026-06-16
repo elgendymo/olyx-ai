@@ -36,6 +36,19 @@ _INTENTS = [
 
 _CACHE = {}
 
+# For the curve "should I sell?" answer: the VERDICT is deterministic; the LLM only TRANSLATES the
+# numbers into plain state and is FORBIDDEN from any directional/advice word (and we verify it, not
+# just prompt it — tone the model sneaks in can't be caught by number-grounding).
+_STATE_SYSTEM = (
+    "Describe ONLY the current state of this single instrument using the numbers in FACTS "
+    "(price, recent range, VWAP if present). One short sentence, plain and factual. FORBIDDEN: the "
+    "words buy, sell, hold, long, short, recommend, should, bullish, bearish, rally, dump, or any "
+    "trading advice or opinion on direction. Do not name other assets. Invent no numbers.")
+_DIRECTIONAL = re.compile(
+    r"\b(buy|sell|sold|hold|long|short|recommend\w*|should|must|bullish|bearish|rally|rallying|"
+    r"dump|upside|downside|momentum|good time|wait)\b", re.I)
+_VERDICT_LABEL = {"downtrend": "SELL SIGNAL", "uptrend": "HOLD SIGNAL", "flat": "NEUTRAL"}
+
 
 def _find_product(query, df):
     q = query.lower()
@@ -93,6 +106,13 @@ def _route(query, df):
             curve = {k: fc[k] for k in ("status", "product_name", "unit", "currency",
                                         "current_price", "slope_per_day", "recommendation",
                                         "n_days", "low", "high", "projections")}
+            vw = analytics.vwap(df)                     # grounded VWAP for the same instrument
+            row = vw[(vw["product_name"] == product) & (vw["unit"] == curve["unit"])
+                     & (vw["currency"] == curve["currency"])]
+            if len(row):
+                v = row.iloc[0]["vwap"]
+                if v == v:                              # not NaN
+                    curve["vwap"] = round(float(v), 2)
         else:
             curve = fc                                  # status + reason only
         return intent, {"intent": intent, "product": product, "curve": curve}
@@ -203,10 +223,48 @@ def _facts_to_text(facts):
     return "I can answer: " + ", ".join(facts.get("capabilities", []))
 
 
+def _trend_key(curve):
+    rec = curve.get("recommendation", "")
+    return "downtrend" if "downtrend" in rec else "uptrend" if "uptrend" in rec else "flat"
+
+
+def _verdict_line(curve):
+    """Deterministic, honest signal — NOT a command (it's a linear-fit projection, not an oracle)."""
+    p = curve["projections"][-1]
+    pct = (p["price"] - curve["current_price"]) / curve["current_price"] * 100 if curve["current_price"] else 0.0
+    label = _VERDICT_LABEL[_trend_key(curve)]
+    return f"[{label}] {_trend_key(curve)}, {pct:+.1f}% projected {p['horizon_days']}d."
+
+
+def _curve_state_text(curve):
+    """Deterministic state sentence — the fallback when the LLM translation is rejected/offline."""
+    vw = f", VWAP {curve['vwap']}" if "vwap" in curve else ""
+    return (f"{curve['product_name']} at {curve['current_price']} {curve['currency']}/{curve['unit']}"
+            f"{vw}; range {curve['low']}–{curve['high']} over {curve['n_days']}d.")
+
+
+def _answer_curve(query, facts, df):
+    """Verdict (deterministic) + state translation (LLM, directional words FORBIDDEN and verified)."""
+    c = facts["curve"]
+    if c.get("status") != "ok":
+        return _facts_to_text(facts), False, True            # no-data reason, deterministic
+    verdict = _verdict_line(c)
+    facts_json = json.dumps(facts, sort_keys=True, default=str)
+    translation = llm.chat(_STATE_SYSTEM, f"FACTS:\n{facts_json}")
+    known = set(df["product_name"].unique())
+    ok = (translation and _is_grounded(translation, facts)
+          and not _mentions_foreign_asset(translation, c["product_name"], known)
+          and not _DIRECTIONAL.search(translation))       # enforce the word-ban, don't just prompt it
+    if translation and not ok:
+        log.warning("rejected curve translation (ungrounded/foreign/directional): %s", translation[:120])
+    state = translation if ok else _curve_state_text(c)
+    return f"{verdict} {state}", ok, True
+
+
 def answer(query, df):
-    """Route -> tight facts. The LLM narrates ONLY single-asset facts (no cross-wire possible) and
-    is then number-grounded + checked for foreign-asset drift; otherwise (multi-asset, or rejected,
-    or offline) we show the deterministic render, which binds each number to its asset by construction."""
+    """Route -> tight facts. Curve answers split verdict (deterministic) from translation (LLM, no
+    directional words). Other single-asset facts are narrated + number-grounded + foreign-asset
+    checked; multi-asset answers are deterministic (each number bound to its asset by construction)."""
     if df is None or df.empty:
         return {"answer": "No market data is loaded yet.", "facts": {}, "intent": "empty",
                 "used_llm": False, "grounded": True, "asset": None}
@@ -215,6 +273,13 @@ def answer(query, df):
     key = (query.strip().lower(), facts_json)
     if key in _CACHE:
         return _CACHE[key]
+
+    if intent == "forward_curve":
+        ans, used_llm, grounded = _answer_curve(query, facts, df)
+        res = {"answer": ans, "facts": facts, "intent": intent, "used_llm": used_llm,
+               "grounded": grounded, "asset": facts.get("product")}
+        _CACHE[key] = res
+        return res
 
     fallback = _facts_to_text(facts)
     asset = _single_asset(facts)
