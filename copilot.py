@@ -97,6 +97,21 @@ _INTENTS = [
 
 _CACHE = {}
 
+# ── Clarification system — LLM-powered fuzzy intent recovery ────────
+# Fires ONLY on unmatched queries (help intent). The LLM gets the query + the
+# list of what the system can actually answer, and asks ONE clarifying question.
+# No numbers are involved so there is nothing to ground-check; any hallucination
+# is just a wrong question, not a wrong price — acceptable trust risk.
+_CLARIFY_SYSTEM = (
+    "You are a smart trading assistant for a biofuel broker named Jasper. "
+    "The user typed something you don't fully understand. "
+    "Your job: read their query, infer what they most likely meant in the context of commodity "
+    "trading (prices, arb, VWAP, forward curves, data freshness), and ask ONE short clarifying "
+    "question to confirm — or, if you're confident, state your interpretation and answer it. "
+    "Offer 2-3 concrete alternatives if the query is truly ambiguous. "
+    "Keep it to 2 sentences max. No lists, no bullet points. Talk like a colleague on a trading desk."
+)
+
 # For the curve "should I sell?" answer: the VERDICT is deterministic; the LLM only TRANSLATES the
 # numbers into plain state and is FORBIDDEN from any directional/advice word (and we verify it, not
 # just prompt it — tone the model sneaks in can't be caught by number-grounding).
@@ -359,7 +374,18 @@ def answer(query, df):
     fallback = _facts_to_text(facts)
     asset = _single_asset(facts)
     answer_text, used_llm, grounded = fallback, False, True
-    if asset is not None:                                 # only narrate an isolated single-asset context
+
+    if intent == "help":
+        # LLM fuzzy-intent recovery: interpret the ambiguous query and ask one clarifying question.
+        # No numbers → nothing to ground-check; safe to let the model reason freely here.
+        clarification = llm.chat(
+            _CLARIFY_SYSTEM,
+            f"Query: {query}\n\nSystem can answer: {', '.join(facts['capabilities'])}",
+            max_tokens=120,
+        )
+        if clarification:
+            answer_text, used_llm = clarification, True
+    elif asset is not None:                              # only narrate an isolated single-asset context
         narration = llm.chat(_SYSTEM, f"Question: {query}\n\nFACTS:\n{facts_json}")
         known = set(df["product_name"].unique())
         if narration and _is_grounded(narration, facts) and not _mentions_foreign_asset(narration, asset, known):
@@ -367,6 +393,7 @@ def answer(query, df):
         elif narration:
             log.warning("rejected narration (ungrounded/foreign asset): %s", narration[:120])
             grounded = False                              # a narration was produced but failed verification
+
     res = {"answer": answer_text, "facts": facts, "intent": intent,
            "used_llm": used_llm, "grounded": grounded, "asset": asset}
     _CACHE[key] = res
