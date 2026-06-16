@@ -29,6 +29,17 @@ def _window(df, days, now=None):
     return df[df["timestamp"] >= now - pd.Timedelta(days=days)]
 
 
+def _inliers(prices):
+    """Boolean mask of non-outlier prices (median ± mad_k·scaled-MAD). Robust to single feed
+    spikes (SRS §5.3 noise filtering). All-equal / tiny samples -> keep everything (the median
+    row is always an inlier, so a filtered group never empties)."""
+    med = prices.median()
+    mad = (prices - med).abs().median()
+    if pd.isna(mad) or mad == 0:
+        return pd.Series(True, index=prices.index)
+    return (prices - med).abs() <= CONFIG.mad_k * 1.4826 * mad   # 1.4826 -> MAD ≈ std
+
+
 def latest_with_freshness(df):
     """Latest quote per instrument + seconds behind the newest packet (REQ-MP-03)."""
     cols = GROUP + ["last_price", "source", "timestamp", "volume", "freshness_sec", "is_stale"]
@@ -53,6 +64,7 @@ def vwap(df, window_days=None):
     w = _window(df, window_days or CONFIG.lookback_days)
     rows = []
     for keys, g in w.groupby(GROUP):
+        g = g[_inliers(g["price"])]               # drop outlier ticks before weighting (§5.3)
         tv = float(g["volume"].sum())
         v = round(float((g["price"] * g["volume"]).sum() / tv), 2) if tv > 0 else np.nan
         rows.append({**dict(zip(GROUP, keys)), "vwap": v, "total_volume": tv, "n": int(len(g))})
@@ -140,6 +152,7 @@ def forward_curve(df, product, unit=None, currency=None, horizons=None, window_d
         sel = sel[(sel["unit"] == unit) & (sel["currency"] == currency)]
 
     w = _window(sel, window_days or CONFIG.lookback_days)
+    w = w[_inliers(w["price"])]                    # reject outlier spikes before fitting (§5.3)
     daily = w.set_index("timestamp")["price"].resample("1D").mean().dropna()
     if len(daily) < 2:
         return {"status": "insufficient_data", "product_name": product, "unit": unit,

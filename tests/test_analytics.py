@@ -71,6 +71,26 @@ def test_vwap_zero_volume_is_nan_not_divzero():
     assert pd.isna(analytics.vwap(df).loc[0, "vwap"])
 
 
+def test_vwap_ignores_price_outlier():
+    # a single 999999 spike must not pull VWAP away from the ~100 cluster (MAD filter, §5.3)
+    rows = [{"price": 100 + (i % 3), "volume": 100, "timestamp": _ts(i)} for i in range(8)]
+    rows.append({"price": 999999, "volume": 100, "timestamp": _ts(8)})
+    assert analytics.vwap(_frame(rows)).loc[0, "vwap"] < 200
+
+
+def test_forward_curve_robust_to_spike():
+    rows = [{"price": 100 + 5 * i, "timestamp": _ts(i)} for i in range(10)]
+    rows.append({"price": 5_000_000, "timestamp": _ts(5)})   # outlier day
+    fc = analytics.forward_curve(_frame(rows), "UCO", unit="MT", currency="EUR", horizons=(30,))
+    assert fc["status"] == "ok"
+    assert fc["projections"][0]["price"] < 1000          # spike rejected; trend stays sane
+
+
+def test_inliers_keeps_all_when_uniform():
+    s = pd.Series([100.0, 100.0, 100.0])
+    assert analytics._inliers(s).all()
+
+
 def test_vwap_groups_by_currency_C4():
     df = _frame([{"price": 100, "currency": "EUR"}, {"price": 130, "currency": "USD"}])
     out = analytics.vwap(df)

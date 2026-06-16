@@ -236,4 +236,22 @@ opportunities?" → cited RME 19% / SAF HEFA 8.57% spreads; inbox sentiment narr
    (not in the text) vs naive "Bullish". Expected (Phase 4a limitation); naive label stays
    authoritative; PITCH "Truth" entry. Optional: prompt tweak "name only assets in the messages".
 
-**Status:** ✅ committing Phase 4b. Next: decide outlier handling, then Phase 5 (UI wiring).
+**Status:** ✅ committed `cce7678`.
+
+## Phase 4c — Robust outlier rejection (SRS §5.3)
+
+**Done**
+- `analytics._inliers(prices)`: median ± `CONFIG.mad_k`·(1.4826·MAD) mask; all-equal/tiny → keep all
+  (median is always an inlier, so a group never empties). Applied **before VWAP and the forward
+  curve**, NOT to the dislocation detector (flagging outliers is its job).
+- `CONFIG.mad_k = 5.0` knob.
+- Tests: VWAP ignores a 999999 spike; curve robust to a 5M spike (projection stays <1000); inliers
+  keep uniform series. 73 total pass.
+
+**Result (the bug from Phase 4b, fixed):** live HVO Class II curve history max **274,714 → 2,168.78**;
+slope −1.46, 90d projection 1747 — sane. Copilot now narrates realistic numbers.
+
+**Test:** `pytest tests/` → **73 passed, 1 skipped**.
+
+**Status:** ✅ committing Phase 4c. Next: Phase 5 — wire the Streamlit UI (charts, dislocations,
+inbox, copilot tabs) + analytics cache-by-token.
