@@ -23,6 +23,7 @@ class Config:
 
     # ── analytics (used Phase 3) ──
     dislocation_pct: float = 0.02       # source-disagreement band (2%)
+    disagreement_window_hours: float = 48.0  # only compare CONTEMPORANEOUS source quotes (not drift)
     zscore_n: float = 3.0               # std-devs from rolling mean to flag
     min_volume: float = 50.0            # tradeable-signal floor (MT/units) — gates noise
     lookback_days: int = 90             # window for stats/curves (13A: slice, don't use all 50k)

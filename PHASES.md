@@ -97,4 +97,33 @@ test per case. Loop: live-probe → find anomaly → fix → unit-test → asser
 ts UTC+sorted, volume≥0, **no NaN grouping key** → all hold. 50,000 → 48,860 clean; 60 instrument
 groups (product×unit×currency).
 
-**Status:** ✅ committing Phase 2.5. Next: Phase 3 analytics (await go-ahead).
+**Status:** ✅ committed `c431d0d`.
+
+## Phase 3 — `analytics.py` (pure, grouped, guarded, deterministic)
+
+**Done**
+- `latest_with_freshness` (REQ-MP-03, freshness vs feed max), `vwap` (REQ-MP-02), `dislocations`
+  (REQ-OS: source-disagreement + z-score, volume-gated), `forward_curve` (5.2, linear polyfit).
+- Every aggregation `groupby(product_name, unit, currency)` (C4); "now" = `timestamp.max()` (C2);
+  float64 internally, rounded at the boundary (determinism, per the nautilus *idea*).
+- `tests/test_analytics.py`: 16 tests — empty guards, freshness, VWAP weighting + ÷0 guard +
+  currency grouping, both dislocation detectors, volume gate, curve slope/insufficient-points/
+  most-traded-group, determinism. Built through `feed.validate()` (DRY + integration).
+
+**Decisions** — 6A guards as first-class; window-slice to lookback (13A); most-traded group picked
+deterministically when unit/currency omitted.
+
+**Failure detectors → corrections (live 50k loop caught 2 accuracy bugs synthetic tests missed)**
+1. **False 28% "disagreements".** source_disagreement compared each source's last price over the
+   full 90d window → fresh-vs-months-stale = drift, not disagreement (31 flags, all bogus). Fix:
+   `CONFIG.disagreement_window_hours=48` — compare only contemporaneous quotes. → 31 → **2 genuine**
+   flags (HBE-O 17.9%, HVO Class II 16.1%, high-volume, tradeable). Test `test_dislocation_ignores_stale_source`.
+2. **Negative forward price.** GO Wind NL projected −5.92 EUR at 90d (linear extrapolation below
+   zero). Fix: clamp price/lo/hi ≥ 0. Test `test_forward_curve_clamps_negative_projection_to_zero`.
+   (Weak synthetic z-score data also surfaced — fixed test, not code: a small spike inflates its own
+   σ; need a longer baseline to clear 3σ.)
+
+**Test:** `pytest tests/` → **40 passed**. Live: 60 instruments, vwap 47 groups (0 fake ÷0),
+dislocations 2 tradeable, 0 negative projections across all products.
+
+**Status:** ✅ committing Phase 3. Next: Phase 4 — `llm.py` + `copilot.py` (await go-ahead).
