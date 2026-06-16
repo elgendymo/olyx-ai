@@ -69,4 +69,32 @@ mixed sources; live source-disagreement already visible (THG quota argus 260.33 
 **Test:** `pytest tests/test_feed.py` → 15 passed. Live: health True, latest 5 rows (UTC), bulk
 48,888 rows.
 
-**Status:** ✅ committing Phase 2. Next: Phase 3 analytics (await go-ahead).
+**Status:** ✅ committed `2074681`.
+
+## Phase 2.5 — Data-integrity hardening (the core of the business)
+
+Probed the **raw** 50k feed (pre-validation) for real dirt, then hardened `validate()` + added a
+test per case. Loop: live-probe → find anomaly → fix → unit-test → assert post-conditions on live.
+
+**Anomalies found in raw 50k:** 528 null prices · 214 ≤0 prices · 222 null products · 143 dup ids ·
+241 zero-volume · **all 20 products quoted in >1 currency** (cross-currency VWAP would be garbage) ·
+0 whitespace/offset/non-finite currently (defended anyway).
+
+**Hardening (each with a unit test, 25 total now):**
+- Dedupe now **sort-by-timestamp then keep-last** → keeps the LATEST per id (was input-order = a bug
+  with 143 real dups).
+- Drop **non-finite** prices (`np.isfinite`) — inf/-inf can't reach the UI.
+- **Negative/null volume → 0** (clamp, don't drop): volume is a VWAP *weight*, a bad weight must not
+  discard a good price.
+- **Blank unit/currency/source → "UNKNOWN"**: a NaN grouping key would be *silently dropped* by
+  pandas `groupby` (dropna default) → invisible data loss. Now it surfaces. (Biggest integrity win.)
+- Numeric-string prices kept; **European-decimal "1.524,74" dropped, not mis-parsed to 1.52**
+  (explicit: corrupt > silently-wrong).
+- Offsets normalized to UTC; whitespace stripped; future-dated rows kept (forward data is legit;
+  freshness is feed-relative, C2).
+
+**Test:** `pytest` → **25 passed**. Live post-conditions on 50k: id-unique, all prices finite/>0,
+ts UTC+sorted, volume≥0, **no NaN grouping key** → all hold. 50,000 → 48,860 clean; 60 instrument
+groups (product×unit×currency).
+
+**Status:** ✅ committing Phase 2.5. Next: Phase 3 analytics (await go-ahead).

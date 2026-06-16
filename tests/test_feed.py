@@ -43,6 +43,65 @@ def test_validate_dedupes_on_id_keep_last():
     assert len(df) == 1 and df.loc[0, "price"] == 200
 
 
+def test_validate_dedupe_keeps_latest_timestamp():
+    # input order is OLDEST last on purpose — must keep the LATEST by timestamp, not by row order
+    df = feed.validate(_df([
+        _rec(id="x", price=200, timestamp="2026-06-10T10:00:00Z"),
+        _rec(id="x", price=100, timestamp="2026-06-09T10:00:00Z"),
+    ]))
+    assert len(df) == 1 and df.loc[0, "price"] == 200
+
+
+def test_validate_drops_nonfinite_price():
+    df = feed.validate(_df([_rec(id="inf", price=float("inf")),
+                            _rec(id="nan", price=float("nan")),
+                            _rec(id="ok", price=1500)]))
+    assert list(df["id"]) == ["ok"]
+
+
+def test_validate_negative_volume_clamped_not_dropped():
+    df = feed.validate(_df([_rec(id="v", price=1500, volume=-5)]))
+    assert len(df) == 1 and df.loc[0, "volume"] == 0.0   # price kept, weight neutralized
+
+
+def test_validate_numeric_string_price_kept():
+    df = feed.validate(_df([_rec(id="s", price="1500.5")]))
+    assert len(df) == 1 and df.loc[0, "price"] == 1500.5
+
+
+def test_validate_european_decimal_price_dropped_not_misparsed():
+    # "1.524,74" must NOT silently become 1.52 — drop it rather than corrupt
+    df = feed.validate(_df([_rec(id="eu", price="1.524,74")]))
+    assert len(df) == 0
+
+
+def test_validate_blank_unit_currency_filled_unknown():
+    df = feed.validate(_df([_rec(id="u", unit="", currency=None)]))
+    assert len(df) == 1
+    assert df.loc[0, "unit"] == "UNKNOWN" and df.loc[0, "currency"] == "UNKNOWN"
+
+
+def test_validate_strips_whitespace_in_product():
+    df = feed.validate(_df([_rec(id="w", product_name="  UCO  ")]))
+    assert df.loc[0, "product_name"] == "UCO"
+
+
+def test_validate_future_timestamp_kept():
+    df = feed.validate(_df([_rec(id="fut", timestamp="2099-01-01T00:00:00Z")]))
+    assert len(df) == 1            # forward data is legit; freshness is feed-relative (C2)
+
+
+def test_validate_offset_timestamp_normalized_to_utc():
+    df = feed.validate(_df([_rec(id="o", timestamp="2026-06-10T10:00:00+02:00")]))
+    assert df.loc[0, "timestamp"] == pd.Timestamp("2026-06-10T08:00:00Z")
+
+
+def test_validate_mixed_currency_same_product_both_survive():
+    df = feed.validate(_df([_rec(id="a", product_name="UCO", currency="EUR"),
+                            _rec(id="b", product_name="UCO", currency="USD")]))
+    assert set(df["currency"]) == {"EUR", "USD"}   # C4: must not collapse across currencies
+
+
 def test_validate_timestamp_is_utc_aware():
     df = feed.validate(_df([_rec()]))
     assert str(df["timestamp"].dt.tz) == "UTC"

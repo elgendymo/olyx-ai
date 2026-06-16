@@ -14,6 +14,7 @@ import random
 import time
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -78,11 +79,19 @@ def _get(path, params=None, stream=False, timeout=None):
 
 # ── pure validation (no I/O — unit-testable, 2A) ───────────────────
 def validate(df):
-    """Clean dirty feed data into a typed, deduped, UTC-sorted frame.
+    """Clean dirty feed data into a typed, deduped, UTC-sorted frame. The system's
+    data-integrity core — everything downstream trusts this output.
 
-    The ONLY place timestamps become tz-aware UTC (8A/C2) and the only dirty-data
-    defense (drops null/blank ids & products, non-positive prices, bad timestamps;
-    dedupes on `id`; coerces volume NaN->0).
+    The ONLY place timestamps become tz-aware UTC (8A/C2). Rules:
+      DROP rows with: null/non-numeric/non-positive/non-finite price; unparseable
+        timestamp; blank/null id or product_name.
+      KEEP but clean: volume null/negative -> 0 (it's a VWAP weight, not the signal,
+        so a bad weight must not discard a good price); blank unit/currency/source ->
+        "UNKNOWN" (so a missing grouping key surfaces instead of being silently dropped
+        by pandas groupby's dropna). Whitespace stripped; offsets normalized to UTC.
+      DEDUPE on id keeping the LATEST timestamp (sort-then-keep-last), not input order.
+    Future-dated rows are kept on purpose — this feed carries forward data and freshness
+    is measured relative to timestamp.max (C2), not the wall clock.
     """
     if df is None or len(df) == 0:
         return pd.DataFrame(columns=COLUMNS)
@@ -92,19 +101,23 @@ def validate(df):
             df[c] = pd.NA
 
     df["price"] = pd.to_numeric(df["price"], errors="coerce")
-    df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0.0)
+    df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0.0).clip(lower=0.0)
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
     for c in ["id", "product_id", "product_name", "source", "currency", "unit"]:
         df[c] = df[c].astype("string").str.strip()
+    # keep grouping/label fields visible — a NaN key would be silently dropped by groupby (C4)
+    df["unit"] = df["unit"].replace("", pd.NA).fillna("UNKNOWN")
+    df["currency"] = df["currency"].replace("", pd.NA).fillna("UNKNOWN")
+    df["source"] = df["source"].replace("", pd.NA).fillna("unknown")
 
     keep = (
-        df["price"].notna() & (df["price"] > 0)
+        df["price"].notna() & (df["price"] > 0) & np.isfinite(df["price"].to_numpy(dtype="float64", na_value=np.nan))
         & df["timestamp"].notna()
         & df["product_name"].notna() & (df["product_name"] != "")
         & df["id"].notna() & (df["id"] != "")
     )
-    df = df[keep].drop_duplicates(subset="id", keep="last")
-    df = df.sort_values("timestamp").reset_index(drop=True)
+    df = df[keep].sort_values("timestamp", kind="stable")
+    df = df.drop_duplicates(subset="id", keep="last").reset_index(drop=True)
     return df[COLUMNS]
 
 
