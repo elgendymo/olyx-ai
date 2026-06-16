@@ -18,6 +18,25 @@ st.set_page_config(page_title="Magic Spyglass", page_icon="🔭", layout="wide")
 if "chat" not in st.session_state:                       # C3: survives reruns
     st.session_state["chat"] = []
 
+# Calm dark "Briefy" feel via a small hand-written CSS block — no dependency, no React fight.
+# Targets a few Streamlit testids; if any drift across versions it just no-ops (graceful).
+st.markdown("""<style>
+.block-container { padding-top: 2.2rem; max-width: 1400px; }
+[data-testid="stVerticalBlockBorderWrapper"] {
+  background: linear-gradient(180deg, rgba(34,211,238,0.045), rgba(0,0,0,0));
+  border: 1px solid rgba(148,163,184,0.16) !important; border-radius: 14px;
+}
+[data-testid="stMarkdownContainer"] h5 {
+  font-family: ui-monospace, SFMono-Regular, monospace; letter-spacing: .09em;
+  font-size: .78rem; color: #7dd3fc; text-transform: uppercase; margin-bottom: .15rem;
+}
+[data-testid="stMetric"] { background: rgba(148,163,184,0.05); border-radius: 10px; padding: .4rem .75rem; }
+section[data-testid="stSidebar"] { background: #0d1526; border-right: 1px solid rgba(148,163,184,0.12); }
+[data-testid="stChatMessage"] { background: rgba(148,163,184,0.045); border-radius: 10px; }
+[data-testid="stDataFrame"] { font-size: .85rem; }
+.stButton > button { border: 1px solid rgba(34,211,238,0.4); border-radius: 8px; }
+</style>""", unsafe_allow_html=True)
+
 
 # ── cached data layer (token-keyed; df fetched once per TTL) ────────
 @st.cache_data(ttl=CONFIG.cache_ttl, show_spinner="Loading market history…")

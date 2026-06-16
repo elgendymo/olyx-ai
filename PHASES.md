@@ -385,4 +385,20 @@ hidden behind a click) and the copilot wasn't a persistent presence. Restructure
 **Verified headless** (AppTest): no exception on load or after a sidebar-chat turn; sidebar
 chat_input works; all four section cards render. 84 tests pass.
 
-**Status:** ✅ committing Phase 5b. Next: Phase 6 — `PITCH.md`.
+**Status:** ✅ committed `fb59817`.
+
+## Phase 5c — Calm-card styling (rejected st_tailwind)
+
+Evaluated `st_tailwind` at source level (8KB): it injects an iframe per styled call that reaches
+`parent.document.addTokens(...)` to bolt Tailwind classes onto Streamlit elements **by undocumented
+`data-testid`**. Rejected — version-coupled (hardcoded testids vs our bleeding-edge 1.58.0; silent
+no-op on drift), fights React (classes flicker/vanish on rerun), an iframe per call, and can't reach
+the elements that matter (plotly charts, chat, the React dataframe grid). Net-negative for a slice
+graded on data integrity, not polish.
+
+Instead: a small hand-written CSS block via `st.markdown(unsafe_allow_html=True)` — accent card
+borders + gradient, mono uppercase eyebrow headers (cyan), boxed metrics, darker sidebar, tighter
+chat/dataframe. No dependency, no iframe/React fight; degrades gracefully if a testid drifts.
+AppTest: no exception. (→ PITCH "Cut": evaluated st_tailwind, chose stdlib CSS.)
+
+**Status:** ✅ committing Phase 5c. Next: Phase 6 — `PITCH.md`.
