@@ -303,7 +303,10 @@ with st.container(border=True):
     bear = sum(copilot._naive_sentiment(b) == "Bearish" for *_, b in MOCK_EMAILS)
     st.caption(f"Net read: 🟢 {bull} bullish · 🔴 {bear} bearish across 6 unread.")
     if digest:
-        with st.spinner("Generating morning briefing…"):
-            brief = copilot.digest_inbox([(w, s, b) for w, _, s, b in MOCK_EMAILS], df)
-        st.markdown("**🌅 Morning briefing**")
+        import datetime as _dt
+        _h = _dt.datetime.now().hour
+        _period = "Morning" if _h < 12 else "Afternoon" if _h < 17 else "Evening"
+        with st.spinner(f"Generating {_period.lower()} briefing…"):
+            brief = copilot.digest_inbox([(w, s, b) for w, _, s, b in MOCK_EMAILS], df, hour=_h)
+        st.markdown(f"**{'🌅' if _h < 12 else '☀️' if _h < 17 else '🌙'} {_period} briefing**")
         st.markdown(brief)

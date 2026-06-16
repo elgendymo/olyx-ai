@@ -130,10 +130,23 @@ _VERDICT_LABEL = {"downtrend": "SELL SIGNAL", "uptrend": "HOLD SIGNAL", "flat": 
 
 def _find_product(query, df):
     q = query.lower()
+    # Pass 1: exact full-name match (highest confidence)
     for p in df["product_name"].unique():
         if p and p.lower() in q:
             return p
-    return None
+    # Pass 2: any significant word (≥4 chars) from the product name appears in the query.
+    # Lets "Biomethane" match "Biomethane THG quota", "HEFA" match "SAF HEFA", etc.
+    # Shortest matching product wins to avoid "Carbon EUA" stealing a query about "EUA".
+    _STOPWORDS = {"class", "type", "quota", "premium", "crude", "wind", "solar", "pellets"}
+    candidates = []
+    for p in df["product_name"].unique():
+        if not p:
+            continue
+        words = [w for w in p.lower().split() if len(w) >= 4 and w not in _STOPWORDS]
+        if words and any(w in q for w in words):
+            candidates.append(p)
+    # prefer the product whose name is shortest (most specific single-word match)
+    return min(candidates, key=len) if candidates else None
 
 
 def _single_asset(facts):
@@ -535,38 +548,41 @@ def summarize_inbox(text, df):
             "sentiment": naive, "asset": asset, "n_messages": n, "used_llm": False}
 
 
-_DIGEST_SYSTEM = (
-    "You are a senior biofuel trading desk assistant briefing broker Jasper at the start of his day. "
-    "Below is a structured list of inbox signals per instrument (asset, sentiment, key driver). "
-    "Write a tight morning briefing: 3-5 bullet points, one per instrument with a signal. "
-    "Each bullet: instrument name, signal (Bullish/Bearish/Neutral), and ONE concrete action or watch point. "
-    "Examples: '• UCO — Bearish: Rotterdam berth delays tightening supply; watch for offer pullback.' "
-    "           '• Carbon EUA — Bullish: auction squeeze; consider covering short exposure.' "
-    "Be direct, like a colleague, not a newsletter. No fluff. No invented prices or percentages."
-)
+def _digest_system(hour):
+    period = "morning" if hour < 12 else "afternoon" if hour < 17 else "evening"
+    timing = {
+        "morning":   "start of day — flag what to act on first, what to watch.",
+        "afternoon": "mid-session — flag what has moved, what needs a decision before close.",
+        "evening":   "end of day — flag carry-over risks and what to prep for tomorrow.",
+    }[period]
+    return (
+        f"You are a senior biofuel trading desk assistant briefing broker Jasper ({timing}) "
+        "Below is a structured list of inbox signals per instrument (asset, sentiment, key driver). "
+        f"Write a tight {period} briefing: 3-5 bullet points, one per instrument with a signal. "
+        "Each bullet: instrument name, signal (Bullish/Bearish/Neutral), and ONE concrete action or watch point. "
+        "Examples: '• UCO — Bearish: Rotterdam berth delays tightening supply; watch for offer pullback.' "
+        "           '• Carbon EUA — Bullish: auction squeeze; consider covering short exposure.' "
+        "Be direct, like a colleague, not a newsletter. No fluff. No invented prices or percentages."
+    )
 
 
-def digest_inbox(emails, df):
+def digest_inbox(emails, df, hour=None):
     """Multi-email digest. Each email is (who, subject, body). Per-email asset lock + sentiment,
-    then one LLM call produces a structured morning briefing over all recognized instruments."""
+    then one LLM call produces a structured briefing tuned to time of day."""
+    import datetime as _dt
+    if hour is None:
+        hour = _dt.datetime.now().hour
     if not emails:
         return "Inbox empty."
-    known = set(df["product_name"].unique()) if df is not None and not df.empty else set()
     lines = []
     for who, subj, body in emails:
         asset = _find_product(body, df) if df is not None and not df.empty else None
         sent  = _naive_sentiment(body)
-        # Extract the most informative sentence (first one containing a signal word)
         first_line = next(
             (s.strip() for s in body.replace("…", "").split(".") if s.strip()),
             body[:80]
         )
         lines.append(f"• {asset or 'Unknown'} | {sent} | From: {who} | {first_line}")
     signal_block = "\n".join(lines)
-    brief = llm.chat(_DIGEST_SYSTEM, signal_block, max_tokens=350)
-    if not brief:
-        # deterministic fallback: one line per instrument
-        return "\n".join(lines)
-    # Safety: strip any invented product names (the LLM got asset names from our signal_block
-    # so it can name them — that's intentional, not a cross-wire risk here)
-    return brief
+    brief = llm.chat(_digest_system(hour), signal_block, max_tokens=350)
+    return brief if brief else "\n".join(lines)
