@@ -53,7 +53,7 @@ _INTENTS = [
         "hold", "holding", "wait", "defer", "roll",
         # curve shape
         "contango", "backwardation", "term structure", "shape",
-        "uptrend", "downtrend", "flat", "slope", "direction",
+        "trend", "uptrend", "downtrend", "flat", "slope", "direction",
         # horizon
         "30 day", "60 day", "90 day", "30d", "60d", "90d",
         "next month", "next quarter", "q1", "q2", "q3", "q4",
@@ -63,11 +63,13 @@ _INTENTS = [
     )),
 
     # ── VWAP / volume-weighted average ──────────────────────────────
-    # Covers: "VWAP for UCO", "volume weighted", "fair value"
+    # Covers: "VWAP for UCO", "volume weighted", "fair value", "how liquid", "most traded"
     ("vwap", (
         "vwap", "weighted", "average price", "avg price",
         "volume weighted", "fair value", "benchmark", "reference price",
         "market average", "mid", "midpoint",
+        "liquid", "liquidity", "most traded", "most active", "volume on",
+        "how many trades", "trade count", "turnover",
     )),
 
     # ── Latest prices / freshness / pulse ───────────────────────────
@@ -163,8 +165,20 @@ def _route(query, df):
 
     if intent == "dislocations":
         res = analytics.dislocations(df)
+        # Sub-query: z-score / sigma spikes only ("any outliers?", "z-score?", "sigma move?")
+        if any(w in q for w in ("z-score", "sigma", "outlier", "spike", "zscore", "statistical")):
+            res = res[res["type"] == "zscore_spike"] if not res.empty else res
+        # Sub-query: source spread / disagreement only ("source spread", "sources disagree")
+        elif any(w in q for w in ("source", "disagree", "sources", "cross", "inter-source")):
+            res = res[res["type"] == "source_disagreement"] if not res.empty else res
+        # Sub-query: product-specific ("any arb on UCO?")
+        if product and not res.empty:
+            res = res[res["product_name"] == product]
+        # Sub-query: biggest spread first ("biggest spread", "worst", "most")
+        if any(w in q for w in ("biggest", "largest", "worst", "most", "top", "rank")):
+            res = res.sort_values("magnitude", ascending=False) if not res.empty else res
         items = []
-        for r in res.head(5).to_dict("records"):
+        for r in res.head(8).to_dict("records"):
             m = {"instrument": r["product_name"], "currency": r["currency"], "type": r["type"],
                  "price": r["latest_price"], "volume": round(r["volume"]),
                  "tradeable": bool(r["tradeable"]), "sources": int(r["n_sources"])}
@@ -173,32 +187,52 @@ def _route(query, df):
             else:
                 m["sigma"] = round(r["magnitude"], 2)
             items.append(m)
-        return intent, {"intent": intent, "opportunities_found": int(len(res)), "items": items}
+        tradeable_count = int(res["tradeable"].sum()) if not res.empty and "tradeable" in res else 0
+        return intent, {"intent": intent, "opportunities_found": int(len(res)),
+                        "tradeable": tradeable_count, "items": items}
 
     if intent == "forward_curve":
-        product = product or (df["product_name"].mode().iloc[0] if not df.empty else None)
-        fc = analytics.forward_curve(df, product) if product else {"status": "no_data", "reason": "no product"}
+        # No product named → don't silently pick a random one; tell Jasper to be specific.
+        if not product:
+            known = sorted(df["product_name"].dropna().unique().tolist())
+            return intent, {"intent": "forward_curve_no_product",
+                            "message": "Which instrument? Specify a product name.",
+                            "known_products": known[:20]}
+        fc = analytics.forward_curve(df, product)
         if fc.get("status") == "ok":
             curve = {k: fc[k] for k in ("status", "product_name", "unit", "currency",
                                         "current_price", "slope_per_day", "recommendation",
                                         "n_days", "low", "high", "projections")}
-            vw = analytics.vwap(df)                     # grounded VWAP for the same instrument
+            vw = analytics.vwap(df)
             row = vw[(vw["product_name"] == product) & (vw["unit"] == curve["unit"])
                      & (vw["currency"] == curve["currency"])]
             if len(row):
                 v = row.iloc[0]["vwap"]
-                if v == v:                              # not NaN
+                if v == v:
                     curve["vwap"] = round(float(v), 2)
+            # Sub-query: contango/backwardation label — add explicit shape flag so LLM has it
+            first_p = curve["projections"][0]["price"] if curve["projections"] else curve["current_price"]
+            last_p  = curve["projections"][-1]["price"] if curve["projections"] else curve["current_price"]
+            curve["shape"] = "contango" if last_p > curve["current_price"] else \
+                             "backwardation" if last_p < curve["current_price"] else "flat"
         else:
-            curve = fc                                  # status + reason only
+            curve = fc
         return intent, {"intent": intent, "product": product, "curve": curve}
 
     if intent == "vwap":
         vw = analytics.vwap(df)
         if product:
             vw = vw[vw["product_name"] == product]
-        else:
-            vw = vw.sort_values("vwap", ascending=False)
+        # Sub-query: volume / liquidity ("how liquid is RME?", "volume on UCO?", "most traded?")
+        if any(w in q for w in ("liquid", "volume", "traded", "activity", "most active", "n trades",
+                                "how many", "count", "turnover")):
+            vw = vw.sort_values("n", ascending=False)
+            items = [{"instrument": r["product_name"], "currency": r["currency"], "unit": r["unit"],
+                      "vwap": (r["vwap"] if r["vwap"] == r["vwap"] else None),
+                      "trades": int(r["n"])}
+                     for r in vw.head(20).to_dict("records")]
+            return "vwap_volume", {"intent": "vwap_volume", "instruments": items}
+        vw = vw.sort_values("vwap", ascending=False) if not product else vw
         items = [{"instrument": r["product_name"], "currency": r["currency"], "unit": r["unit"],
                   "vwap": (r["vwap"] if r["vwap"] == r["vwap"] else None), "n": int(r["n"])}
                  for r in vw.head(20).to_dict("records")]
@@ -233,12 +267,31 @@ def _route(query, df):
 
         if product:
             lat = lat[lat["product_name"] == product]
+
+        # Sub-query: currency filter ("EUR prices", "show me GBP", "USD only")
+        for ccy in ("eur", "usd", "gbp"):
+            if ccy in q:
+                lat = lat[lat["currency"].str.lower() == ccy]
+                break
+
+        # Sub-query: fresh only ("fresh instruments", "live quotes only", "non-stale")
+        if any(w in q for w in ("fresh only", "fresh instrument", "live only", "non-stale",
+                                "not stale", "only fresh", "active only")):
+            lat = lat[~lat["is_stale"]]
+
+        # Sub-query: stale only ("what's stale?", "stale instruments", "which are stale?")
+        elif any(w in q for w in ("which stale", "what stale", "stale instrument", "stale product",
+                                  "stale data", "stale quote", "show stale", "list stale",
+                                  "still stale", "stale ones", "stale lines")):
+            lat = lat[lat["is_stale"]].sort_values("freshness_sec", ascending=False)
+
         elif any(w in q for w in ("highest", "most expensive", "maximum", "max price", "biggest price")):
             lat = lat.sort_values("last_price", ascending=False)
         elif any(w in q for w in ("lowest", "cheapest", "minimum", "min price", "smallest price")):
             lat = lat.sort_values("last_price", ascending=True)
         else:
             lat = lat.sort_values("freshness_sec", ascending=True)   # freshest first (default)
+
         items = [{"instrument": r["product_name"], "price": r["last_price"], "currency": r["currency"],
                   "unit": r["unit"], "age_minutes": round(r["freshness_sec"] / 60, 1),
                   "stale": bool(r["is_stale"])} for r in lat.head(20).to_dict("records")]
@@ -329,6 +382,16 @@ def _facts_to_text(facts):
         return "; ".join(f"{i['instrument']} ({i['currency']}) VWAP "
                          f"{i['vwap'] if i['vwap'] is not None else 'n/a (zero volume)'}"
                          for i in items[:5])
+    if intent == "forward_curve_no_product":
+        prods = ", ".join(facts.get("known_products", [])[:10])
+        return f"Which instrument? E.g.: {prods}."
+    if intent == "vwap_volume":
+        items = facts["instruments"]
+        if not items:
+            return "No volume data available."
+        return "; ".join(f"{i['instrument']} ({i['currency']}) {i['trades']} trades, "
+                         f"VWAP {i['vwap'] if i['vwap'] is not None else 'n/a'}"
+                         for i in items[:8])
     if intent == "feed_age":
         f = facts
         return (f"Feed newest packet: {f['feed_newest_utc']} UTC. "
