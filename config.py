@@ -1,0 +1,33 @@
+"""Single tuning surface — the trader's calibration knob (review 5A).
+
+Every threshold lives here so Jasper can tune dislocation sensitivity, the volume
+floor, lookback, etc. without hunting through analytics code.
+"""
+import os
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class Config:
+    # ── feed / ingestion ──
+    base_url: str = os.environ.get(
+        "FEED_BASE_URL", "https://renewable-price-feed-mock.onrender.com"
+    )
+    request_timeout: float = 10.0       # seconds per HTTP attempt (small endpoints)
+    bulk_timeout: float = 120.0         # /feed/bulk is ~50k chunked rows; cold Render is slow
+    max_retries: int = 4                # total attempts before giving up
+    backoff_base: float = 0.5           # exp backoff: base * 2**attempt (+ jitter)
+    backoff_cap: float = 8.0            # max single sleep
+    cache_ttl: float = 300.0            # parquet cache considered fresh for N seconds
+    latest_limit: int = 100             # /feed/latest max
+
+    # ── analytics (used Phase 3) ──
+    dislocation_pct: float = 0.02       # source-disagreement band (2%)
+    zscore_n: float = 3.0               # std-devs from rolling mean to flag
+    min_volume: float = 50.0            # tradeable-signal floor (MT/units) — gates noise
+    lookback_days: int = 90             # window for stats/curves (13A: slice, don't use all 50k)
+    curve_horizons: tuple = (30, 60, 90)
+    stale_after: float = 3600.0         # freshness banner threshold (sec, vs feed timestamp.max — C2)
+
+
+CONFIG = Config()
