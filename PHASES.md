@@ -153,4 +153,27 @@ Regression example-tests added for #1/#2 in `test_feed.py`.
 **Test:** `pytest tests/` → **48 passed** (~6s). Live: 50,000 → 48,820 clean; all post-conditions +
 idempotency hold on real data.
 
-**Status:** ✅ committing Phase 3.5. Next: Phase 4 — `llm.py` + `copilot.py` (await go-ahead).
+**Status:** ✅ committed `66945d5`.
+
+## Phase 3.6 — Checklist reflection (pre-LLM)
+
+Audited Phases 1–3.5 against the Senior Product Engineer checklist. Sections 1 & 2 complete;
+Section 3 is Phase 4/5 (chat session_state already done); Section 4 is Phase 6 (PITCH).
+
+**Two gaps settled:**
+- **Forward-curve sentinel (fixed).** `forward_curve` now ALWAYS returns a dict with `status`
+  ("ok" | "no_data" | "insufficient_data") and a human `reason`, instead of bare `None` — so the
+  UI/copilot can explain *why* there's no curve (checklist: "strict descriptive sentinel + clear
+  warning reasoning"). Tests updated.
+- **Zero/negative-volume — CONSCIOUS DEVIATION (kept).** Checklist says *drop* zero/negative-volume
+  rows; we **keep the price and zero the weight**. Rationale: a 0/indicative quote still carries a
+  valid price level for Pulse/freshness/dislocation, and VWAP already excludes zero weight — dropping
+  would discard ~241 live price points. → **PITCH "Cut/Truth" entry.**
+
+**Still scheduled (on track, not gaps):** compute≠narrate + inbox sentiment (Phase 4); analytics
+cache-by-token — mechanism ready (`bulk()` returns `fetched_at`), consumed in Phase 5; `base_url` is
+already a one-line env failover; PITCH "The Cut" (Phase 6).
+
+**Test:** `pytest tests/` → **48 passed**.
+
+**Status:** ✅ committing Phase 3.6. Next: Phase 4 — `llm.py` + `copilot.py` (await go-ahead).

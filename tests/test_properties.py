@@ -102,7 +102,9 @@ def test_forward_curve_finite_and_nonnegative(df):
         return
     for product in df["product_name"].unique()[:3]:
         fc = analytics.forward_curve(df, product)
-        if fc is None:
+        assert "status" in fc                    # always a dict now, never None
+        if fc["status"] != "ok":
+            assert "reason" in fc
             continue
         assert np.isfinite(fc["slope_per_day"])
         for pr in fc["projections"]:

@@ -44,7 +44,7 @@ def test_empty_df_guards():
     assert analytics.latest_with_freshness(empty).empty
     assert analytics.vwap(empty).empty
     assert analytics.dislocations(empty).empty
-    assert analytics.forward_curve(empty, "UCO") is None
+    assert analytics.forward_curve(empty, "UCO")["status"] == "no_data"
 
 
 # ── freshness ───────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ def test_dislocation_volume_gate_marks_low_volume_untradeable():
 def test_forward_curve_positive_slope_projects_up():
     rows = [{"price": 100 + 10 * i, "timestamp": f"2026-06-0{i}T08:00:00Z"} for i in range(1, 8)]
     fc = analytics.forward_curve(_frame(rows), "UCO", unit="MT", currency="EUR", horizons=(30,))
-    assert fc["slope_per_day"] > 0
+    assert fc["status"] == "ok" and fc["slope_per_day"] > 0
     assert fc["projections"][0]["price"] > fc["history"][-1]["price"]
 
 
@@ -132,20 +132,22 @@ def test_forward_curve_clamps_negative_projection_to_zero():
     # steep downtrend -> linear fit would project below zero; must clamp (commodity prices ≥ 0)
     rows = [{"price": max(200 - 30 * i, 1), "timestamp": _ts(i)} for i in range(7)]
     fc = analytics.forward_curve(_frame(rows), "UCO", unit="MT", currency="EUR", horizons=(90,))
+    assert fc["status"] == "ok"
     assert fc["projections"][0]["price"] >= 0.0
     assert fc["projections"][0]["lo"] >= 0.0
 
 
-def test_forward_curve_insufficient_points_returns_none():
+def test_forward_curve_insufficient_points_returns_sentinel():
     df = _frame([{"price": 100, "timestamp": "2026-06-10T08:00:00Z"}])
-    assert analytics.forward_curve(df, "UCO") is None  # <2 distinct days
+    fc = analytics.forward_curve(df, "UCO")            # <2 distinct days
+    assert fc["status"] == "insufficient_data" and "need" in fc["reason"]
 
 
 def test_forward_curve_picks_most_traded_group_when_unspecified():
     rows = ([{"price": 100 + i, "currency": "EUR", "timestamp": f"2026-06-0{i}T08:00:00Z"} for i in range(1, 6)]
             + [{"price": 50, "currency": "USD", "timestamp": "2026-06-02T08:00:00Z"}])
     fc = analytics.forward_curve(_frame(rows), "UCO")
-    assert fc["currency"] == "EUR"   # more rows
+    assert fc["status"] == "ok" and fc["currency"] == "EUR"   # more rows
 
 
 # ── determinism ─────────────────────────────────────────────────────

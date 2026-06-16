@@ -118,19 +118,21 @@ def dislocations(df, window_days=None):
 
 def forward_curve(df, product, unit=None, currency=None, horizons=None, window_days=None):
     """Linear forward curve for ONE instrument: fit price ~ day over the window, project out
-    each horizon (answers "is now a good time to sell?", 5.2). Returns None if the instrument
-    has <2 distinct days (6A — can't fit a line). If unit/currency omitted, picks the
-    most-traded group deterministically (count desc, then alpha)."""
+    each horizon (answers "is now a good time to sell?", 5.2). Always returns a dict with a
+    `status`: "ok" with the curve, or "no_data"/"insufficient_data" with a human `reason` — so
+    the UI and copilot can explain WHY there's no curve instead of silently showing nothing (6A).
+    If unit/currency omitted, picks the most-traded group deterministically (count desc, then alpha)."""
     horizons = horizons or CONFIG.curve_horizons
     if df is None or df.empty:
-        return None
+        return {"status": "no_data", "product_name": product, "reason": "no data loaded"}
     sel = df[df["product_name"] == product]
     if unit is not None:
         sel = sel[sel["unit"] == unit]
     if currency is not None:
         sel = sel[sel["currency"] == currency]
     if sel.empty:
-        return None
+        return {"status": "no_data", "product_name": product,
+                "reason": f"no quotes for {product!r} in the selected unit/currency"}
     if unit is None or currency is None:
         counts = sel.groupby(["unit", "currency"]).size().reset_index(name="n")
         counts = counts.sort_values(["n", "unit", "currency"], ascending=[False, True, True])
@@ -140,7 +142,10 @@ def forward_curve(df, product, unit=None, currency=None, horizons=None, window_d
     w = _window(sel, window_days or CONFIG.lookback_days)
     daily = w.set_index("timestamp")["price"].resample("1D").mean().dropna()
     if len(daily) < 2:
-        return None
+        return {"status": "insufficient_data", "product_name": product, "unit": unit,
+                "currency": currency, "n_days": int(len(daily)),
+                "reason": f"only {len(daily)} day(s) in the {window_days or CONFIG.lookback_days}d "
+                          "window; need ≥2 to project a trend"}
 
     base = daily.index[0]
     x = ((daily.index - base).days).to_numpy(dtype=float)
@@ -161,7 +166,7 @@ def forward_curve(df, product, unit=None, currency=None, horizons=None, window_d
                             "hi": round(max(float(p + band), 0.0), 2)})
 
     return {
-        "product_name": product, "unit": unit, "currency": currency,
+        "status": "ok", "product_name": product, "unit": unit, "currency": currency,
         "slope_per_day": round(float(slope), 4), "n_days": int(len(daily)),
         "history": [{"date": d.date().isoformat(), "price": round(float(v), 2)}
                     for d, v in daily.items()],
