@@ -104,6 +104,34 @@ def test_qualitative_answer_is_grounded(monkeypatch):
     assert res["grounded"] is True            # no numbers to verify
 
 
+# ── single-asset isolation (the cross-wire fix) ─────────────────────
+def test_multi_asset_skips_llm_uses_deterministic(monkeypatch):
+    called = {"n": 0}
+    monkeypatch.setattr(copilot.llm, "chat",
+                        lambda *a, **k: called.__setitem__("n", called["n"] + 1) or "narr")
+    df = _frame([{"product_name": "UCO", "price": 1000}, {"product_name": "POME", "price": 1300}])
+    res = copilot.answer("latest prices?", df)            # no product named -> 2 instruments -> multi
+    assert res["asset"] is None and res["used_llm"] is False and called["n"] == 0
+    assert "UCO" in res["answer"] and "POME" in res["answer"]   # deterministic, correctly bound
+
+
+def test_single_asset_isolation_blocks_crosswire(monkeypatch):
+    df = _frame([{"product_name": "UCO", "price": 1165.26}, {"product_name": "POME", "price": 1300.0}])
+    # ask about POME -> facts scoped to POME only; model tries to cite UCO's price
+    monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: "POME is trading at 1165.26 EUR.")
+    res = copilot.answer("latest price for POME?", df)
+    assert res["asset"] == "POME"
+    assert res["used_llm"] is False           # 1165.26 not in POME's isolated facts -> rejected
+    assert "1165.26" not in res["answer"]
+
+
+def test_single_asset_rejects_foreign_asset_name(monkeypatch):
+    df = _frame([{"product_name": "UCO", "price": 1000}, {"product_name": "POME", "price": 1300}])
+    monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: "UCO at 1000, and POME is moving too.")
+    res = copilot.answer("latest price for UCO?", df)
+    assert res["asset"] == "UCO" and res["used_llm"] is False   # names POME -> drift -> rejected
+
+
 def test_answer_caches_on_query_and_facts(monkeypatch):
     calls = {"n": 0}
     def fake(*a, **k):
@@ -132,21 +160,32 @@ def test_facts_are_deterministic(monkeypatch):
     assert a == b
 
 
-# ── inbox sentiment ─────────────────────────────────────────────────
-def test_inbox_naive_sentiment_offline(monkeypatch):
+# ── inbox: asset locked by gazetteer, LLM writes asset-free prose ───
+def test_inbox_injects_detected_asset(monkeypatch):
+    monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: "supply looks tight and demand strong")
+    df = _frame([{"product_name": "UCO"}])
+    res = copilot.summarize_inbox("Rotterdam delays, UCO cargoes tight, demand strong.", df)
+    assert res["asset"] == "UCO" and res["summary"].startswith("UCO —")
+    assert res["used_llm"] is True and res["sentiment"] == "Bullish"
+
+
+def test_inbox_unrecognized_instrument_skips_llm(monkeypatch):
+    called = {"n": 0}
+    monkeypatch.setattr(copilot.llm, "chat",
+                        lambda *a, **k: called.__setitem__("n", called["n"] + 1) or "x")
+    df = _frame([{"product_name": "UCO"}])
+    res = copilot.summarize_inbox("oversupply glut, prices falling, weak demand", df)  # no known asset
+    assert res["asset"] is None and res["summary"] == "Unrecognized instrument." and called["n"] == 0
+
+
+def test_inbox_rejects_foreign_asset_in_summary(monkeypatch):
+    monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: "POME is rallying hard")  # ignored instruction
+    df = _frame([{"product_name": "UCO"}, {"product_name": "POME"}])
+    res = copilot.summarize_inbox("UCO supply tight", df)
+    assert res["asset"] == "UCO" and res["used_llm"] is False and "POME" not in res["summary"]
+
+
+def test_inbox_empty(monkeypatch):
     monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: None)
-    res = copilot.summarize_inbox("Port delays in Rotterdam, UCO supply tight, prices rising.\nStrong demand.")
-    assert res["sentiment"] == "Bullish" and res["n_messages"] == 2 and res["used_llm"] is False
-
-
-def test_inbox_bearish_and_empty(monkeypatch):
-    monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: None)
-    assert copilot.summarize_inbox("oversupply glut, prices falling, weak demand")["sentiment"] == "Bearish"
-    empty = copilot.summarize_inbox("")
-    assert empty["n_messages"] == 0 and empty["sentiment"] == "Neutral"
-
-
-def test_inbox_uses_llm_summary_when_available(monkeypatch):
-    monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: "Bullish on UCO. Sentiment: Bullish on UCO")
-    res = copilot.summarize_inbox("UCO supply tight")
-    assert res["used_llm"] is True and "Bullish" in res["summary"]
+    res = copilot.summarize_inbox("", _frame([{"product_name": "UCO"}]))
+    assert res["n_messages"] == 0 and res["sentiment"] == "Neutral"

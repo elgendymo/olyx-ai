@@ -45,6 +45,26 @@ def _find_product(query, df):
     return None
 
 
+def _single_asset(facts):
+    """Name of the one instrument these facts describe, or None if they span >1 (or none).
+
+    The LLM only narrates numbers when facts are scoped to a SINGLE asset — then a cross-wire is
+    impossible because no other asset's numbers are in context (multi-asset cross-wire fix)."""
+    if facts.get("intent") == "forward_curve":
+        c = facts.get("curve") or {}
+        return c["product_name"] if c.get("status") == "ok" else None
+    rows = facts.get("instruments") or facts.get("items") or []
+    names = {r.get("instrument") for r in rows}
+    return next(iter(names)) if len(names) == 1 else None
+
+
+def _mentions_foreign_asset(text, asset, known):
+    """True if the prose names a known product other than `asset` (anti-drift / misattribution)."""
+    t = text.lower()
+    return any(p.lower() in t for p in known
+              if p and p != asset and p.lower() not in (asset or "").lower())
+
+
 def _route(query, df):
     """(intent, tight facts dict). Facts hold only the few numbers needed to answer — labeled,
     unit-tagged, pre-selected — so the model copies rather than reconstructs (#2)."""
@@ -184,10 +204,12 @@ def _facts_to_text(facts):
 
 
 def answer(query, df):
-    """Route -> tight facts -> LLM narrates -> VERIFY grounding -> fall back if ungrounded/offline."""
+    """Route -> tight facts. The LLM narrates ONLY single-asset facts (no cross-wire possible) and
+    is then number-grounded + checked for foreign-asset drift; otherwise (multi-asset, or rejected,
+    or offline) we show the deterministic render, which binds each number to its asset by construction."""
     if df is None or df.empty:
         return {"answer": "No market data is loaded yet.", "facts": {}, "intent": "empty",
-                "used_llm": False, "grounded": True}
+                "used_llm": False, "grounded": True, "asset": None}
     intent, facts = _route(query, df)
     facts_json = json.dumps(facts, sort_keys=True, default=str)
     key = (query.strip().lower(), facts_json)
@@ -195,12 +217,18 @@ def answer(query, df):
         return _CACHE[key]
 
     fallback = _facts_to_text(facts)
-    narration = llm.chat(_SYSTEM, f"Question: {query}\n\nFACTS:\n{facts_json}")
-    grounded = bool(narration) and _is_grounded(narration, facts)
-    if narration and not grounded:
-        log.warning("rejected ungrounded narration: %s", narration[:120])
-    res = {"answer": narration if grounded else fallback, "facts": facts, "intent": intent,
-           "used_llm": grounded, "grounded": grounded}
+    asset = _single_asset(facts)
+    answer_text, used_llm, grounded = fallback, False, True
+    if asset is not None:                                 # only narrate an isolated single-asset context
+        narration = llm.chat(_SYSTEM, f"Question: {query}\n\nFACTS:\n{facts_json}")
+        known = set(df["product_name"].unique())
+        if narration and _is_grounded(narration, facts) and not _mentions_foreign_asset(narration, asset, known):
+            answer_text, used_llm = narration, True
+        elif narration:
+            log.warning("rejected narration (ungrounded/foreign asset): %s", narration[:120])
+            grounded = False                              # a narration was produced but failed verification
+    res = {"answer": answer_text, "facts": facts, "intent": intent,
+           "used_llm": used_llm, "grounded": grounded, "asset": asset}
     _CACHE[key] = res
     return res
 
@@ -218,15 +246,27 @@ def _naive_sentiment(text):
     return "Bullish" if b > s else "Bearish"
 
 
-def summarize_inbox(text):
-    """LLM summary + deterministic naive keyword sentiment (authoritative label + offline fallback)."""
+def summarize_inbox(text, df):
+    """Asset name is LOCKED deterministically by the gazetteer (`_find_product`); the LLM only writes
+    asset-free sentiment prose; Python assembles `"{asset} — {summary}"`. The model is structurally
+    incapable of inventing an asset (e.g. "Crude Oil") because it never authors the name. No known
+    instrument in the text -> skip the LLM entirely. Deterministic keyword sentiment stays authoritative."""
     text = (text or "").strip()
     n = len([ln for ln in text.splitlines() if ln.strip()])
     if not text:
-        return {"summary": "Inbox empty.", "sentiment": "Neutral", "n_messages": 0, "used_llm": False}
+        return {"summary": "Inbox empty.", "sentiment": "Neutral", "asset": None,
+                "n_messages": 0, "used_llm": False}
+    asset = _find_product(text, df) if (df is not None and not df.empty) else None
     naive = _naive_sentiment(text)
-    system = ("You summarize a commodity broker's unread messages in ONE line. Mention only assets "
-              "that literally appear in the messages. End with ' Sentiment: Bullish|Bearish|Neutral'.")
-    out = llm.chat(system, text, max_tokens=200)
-    return {"summary": out or f"{n} unread message(s); LLM offline — keyword sentiment only.",
-            "sentiment": naive, "n_messages": n, "used_llm": out is not None}
+    if asset is None:                                     # gazetteer found no known instrument
+        return {"summary": "Unrecognized instrument.", "sentiment": naive, "asset": None,
+                "n_messages": n, "used_llm": False}
+    system = ("Summarize the market sentiment of these broker messages in ONE short clause. "
+              "Do NOT name any company, product, asset, price, or number — describe the drivers only.")
+    out = llm.chat(system, text, max_tokens=120)
+    known = set(df["product_name"].unique())
+    if out and not _mentions_foreign_asset(out, asset, known):
+        return {"summary": f"{asset} — {out}", "sentiment": naive, "asset": asset,
+                "n_messages": n, "used_llm": True}
+    return {"summary": f"{asset} — {n} message(s), {naive.lower()} keyword signal.",
+            "sentiment": naive, "asset": asset, "n_messages": n, "used_llm": False}

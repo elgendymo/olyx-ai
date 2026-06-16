@@ -292,4 +292,37 @@ slope −1.46, 90d projection 1747 — sane. Copilot now narrates realistic numb
 **Test:** `pytest tests/` → **78 passed, 1 skipped**. Live (qwen2.5:7b): dislocations read
 correctly + grounded; bad curve narration auto-rejected → clean deterministic fallback.
 
-**Status:** ✅ committing Phase 4d. Next: Phase 5 — wire Streamlit UI + analytics cache-by-token.
+**Status:** ✅ committed `6937c91`.
+
+## Phase 4e — Multi-asset cross-wire fix + inbox asset-lock
+
+**A reviewer caught a live hole in 4d** (verified empirically): number-grounding checks number- and
+asset-membership *independently*, so with ≥2 assets in the payload "POME trading at 1165.26" (UCO's
+price) PASSED. Independent set-membership = false safety on multi-asset facts.
+
+**Fix — single-asset context isolation (copilot):**
+- The LLM narrates numbers ONLY when facts are scoped to ONE instrument (`_single_asset`). Then a
+  cross-wire is impossible — no other asset's numbers are in context. Verifier also rejects prose
+  naming a *foreign* known product (`_mentions_foreign_asset`).
+- Multi-asset questions ("any opportunities?") skip the LLM and return the deterministic render,
+  which binds each number to its asset by construction. No N-call latency (rejected the reviewer's
+  per-asset loop — Ollama serializes; 5 calls = 10-20s).
+
+**Fix — inbox asset-lock (per user):** gazetteer (`_find_product`) locks the asset name from the raw
+text; the LLM writes asset-free sentiment prose only; Python assembles `"{asset} — {summary}"`. No
+known instrument -> skip the LLM, return "Unrecognized instrument." The model is structurally
+incapable of inventing "Crude Oil" because it never authors the name.
+
+**Tests:** +6 (cross-wire blocked, multi-asset deterministic, foreign-asset reject, inbox lock/skip).
+**82 passed.** Live: single-asset narrates (verified); multi-asset = "UCO 22.9%; TTF 16.88%;
+Glycerine 10.77%" (correctly bound, no LLM); inbox "UCO — …" locked; no-asset -> Unrecognized.
+
+**🟡 RESIDUAL (reasoning, unfixable by grounding) — needs a Phase 5 decision.** The live "good time
+to sell HVO Class II?" answer was self-CONTRADICTORY: "Now is not a good time to sell … the
+recommendation suggests selling sooner rather than waiting." Grounding passed (no bad numbers) but
+the model garbled the verdict. The deterministic `recommendation` field is unambiguous
+("downtrend — selling sooner likely beats waiting"); the LLM muddied it. Mitigation for Phase 5:
+show the deterministic recommendation verbatim as the headline; LLM prose is color only, never the
+verdict.
+
+**Status:** ✅ committing Phase 4e. Next: Phase 5 — UI wiring (+ surface deterministic verdict).
