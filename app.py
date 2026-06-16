@@ -91,6 +91,26 @@ section[data-testid="stSidebar"] { width: 380px !important; min-width: 380px !im
 ::-webkit-scrollbar-track { background:transparent; }
 /* verdict */
 .verdict { font-size:1.35rem; font-weight:800; letter-spacing:-.01em; margin:.2rem 0 .4rem; }
+/* greeting orb — ported from Briefy greeting.css */
+.greeting-orb {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:32px; height:32px; border-radius:999px; font-size:1.1rem;
+  flex-shrink:0; animation: orb-glow 3.6s ease-in-out infinite; }
+.orb-morning {
+  background: radial-gradient(circle at 30% 30%, #fef3c7 0%, #f59e0b 60%, rgba(245,158,11,0) 100%);
+  box-shadow: 0 0 22px rgba(245,158,11,0.45); }
+.orb-afternoon {
+  background: radial-gradient(circle at 35% 35%, #fde047 0%, #fbbf24 55%, rgba(251,191,36,0) 100%);
+  box-shadow: 0 0 24px rgba(251,191,36,0.40); }
+.orb-evening {
+  background: radial-gradient(circle at 35% 35%, #fed7aa 0%, #fb923c 55%, rgba(251,146,60,0) 100%);
+  box-shadow: 0 0 24px rgba(251,146,60,0.40); animation-duration:4.5s; }
+.orb-night {
+  background: radial-gradient(circle at 35% 35%, #c7d2fe 0%, #818cf8 55%, rgba(129,140,248,0) 100%);
+  box-shadow: 0 0 22px rgba(129,140,248,0.35); animation-duration:5s; }
+@keyframes orb-glow {
+  0%,100% { transform:scale(1);    filter:brightness(1); }
+  50%      { transform:scale(1.08); filter:brightness(1.15); } }
 </style>""", unsafe_allow_html=True)
 
 
@@ -177,10 +197,28 @@ with st.sidebar:
     refresh_watcher()
 
 # ── main ────────────────────────────────────────────────────────────
-st.markdown('<h1 style="margin-bottom:.1rem">🔭 <span style="background:linear-gradient('
-            '90deg,#e2e8f0,#22d3ee);-webkit-background-clip:text;-webkit-text-fill-color:'
-            'transparent">Magic Spyglass</span></h1>', unsafe_allow_html=True)
-st.caption("Valid pricing dislocations, surfaced. Noise, ignored.")
+import datetime as _dt
+_now_h = _dt.datetime.now().hour
+_period, _orb_cls, _phrase = (
+    ("morning",   "orb-morning",   "Good morning")   if 5  <= _now_h < 12 else
+    ("afternoon", "orb-afternoon", "Good afternoon") if 12 <= _now_h < 18 else
+    ("evening",   "orb-evening",   "Good evening")   if 18 <= _now_h < 23 else
+    ("night",     "orb-night",     "Good night")
+)
+st.markdown(f"""
+<div style="display:flex;align-items:center;gap:.65rem;margin-bottom:.15rem">
+  <span class="greeting-orb {_orb_cls}"></span>
+  <h1 style="margin:0;font-size:1.9rem;font-weight:800;letter-spacing:-.025em;line-height:1">
+    🔭 <span style="background:linear-gradient(90deg,#e2e8f0,#22d3ee);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent">Magic Spyglass</span>
+  </h1>
+</div>
+<p style="margin:0 0 .5rem 0;color:#94a3b8;font-size:.92rem">
+  {_phrase}, <span style="background:linear-gradient(135deg,#c7d2fe 0%,#e2e8f0 60%);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:600">Jasper</span>
+  — valid pricing dislocations, surfaced. Noise, ignored.
+</p>
+""", unsafe_allow_html=True)
 if df.empty:
     st.error("Feed unreachable and no cached data. (fail-silent: nothing fabricated)")
     st.stop()
