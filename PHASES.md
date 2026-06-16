@@ -126,4 +126,31 @@ deterministically when unit/currency omitted.
 **Test:** `pytest tests/` → **40 passed**. Live: 60 instruments, vwap 47 groups (0 fake ÷0),
 dislocations 2 tradeable, 0 negative projections across all products.
 
-**Status:** ✅ committing Phase 3. Next: Phase 4 — `llm.py` + `copilot.py` (await go-ahead).
+**Status:** ✅ committed `4547c3e`.
+
+## Phase 3.5 — Property-based testing (Hypothesis) on the pure layer
+
+Added `hypothesis`; `tests/test_properties.py` asserts the data contract holds for ANY generated
+input (junk prices incl inf/nan/bool/strings, weird/offset/None timestamps, negative/huge volumes,
+blank labels). Scope = pure layer only (validate + analytics); I/O & LLM excluded.
+
+**Properties:** validate output invariants (id-unique, finite price in [price_min, price_max], UTC+
+sorted, no NaN grouping key, volume in [0, volume_max]); **validate idempotent**; VWAP ∈ group price
+range; analytics never emit NaN/inf; freshness ≥ 0; forward curve finite & ≥0; determinism.
+
+**Bugs Hypothesis caught that example tests missed (3 real integrity holes):**
+1. **Price overflow** — `1.8e306` is finite & >0 so it passed, then overflowed to `inf` downstream.
+   Fix: `CONFIG.price_max=1e9` reject (the borrowed nautilus PRICE_MAX idea, now justified).
+2. **Sub-cent price → 0.00** — `1.19e-7` rounds to 0.00 at 2dp = a misleading zero price. Fix:
+   `CONFIG.price_min=0.01` floor.
+3. **Empty-frame dtype inconsistency** — the `len==0` early return gave object-dtype columns while
+   the filtered-to-empty path gave typed columns → `validate(empty) != empty` (not idempotent).
+   Fix: route empty through the same pipeline → always typed, consistent schema.
+   Also `volume_max=1e7` neutralizes absurd volumes (weight overflow).
+
+Regression example-tests added for #1/#2 in `test_feed.py`.
+
+**Test:** `pytest tests/` → **48 passed** (~6s). Live: 50,000 → 48,820 clean; all post-conditions +
+idempotency hold on real data.
+
+**Status:** ✅ committing Phase 3.5. Next: Phase 4 — `llm.py` + `copilot.py` (await go-ahead).

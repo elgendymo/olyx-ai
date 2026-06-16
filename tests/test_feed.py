@@ -52,6 +52,17 @@ def test_validate_dedupe_keeps_latest_timestamp():
     assert len(df) == 1 and df.loc[0, "price"] == 200
 
 
+def test_validate_drops_absurd_price_overflow_guard():
+    # found by Hypothesis: 1.8e306 is finite & >0 but overflows downstream -> must reject
+    df = feed.validate(_df([_rec(id="huge", price=1.8e306), _rec(id="ok", price=1500)]))
+    assert list(df["id"]) == ["ok"]
+
+
+def test_validate_absurd_volume_neutralized_to_zero():
+    df = feed.validate(_df([_rec(id="v", price=1500, volume=1e12)]))
+    assert len(df) == 1 and df.loc[0, "volume"] == 0.0   # keep price, neutralize weight
+
+
 def test_validate_drops_nonfinite_price():
     df = feed.validate(_df([_rec(id="inf", price=float("inf")),
                             _rec(id="nan", price=float("nan")),

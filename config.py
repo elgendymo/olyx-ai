@@ -20,6 +20,9 @@ class Config:
     backoff_cap: float = 8.0            # max single sleep
     cache_ttl: float = 300.0            # parquet cache considered fresh for N seconds
     latest_limit: int = 100             # /feed/latest max
+    price_min: float = 0.01             # reject sub-cent prices (round to 0.00 at 2dp = misleading)
+    price_max: float = 1e9              # reject absurd prices (overflow guard; nautilus PRICE_MAX idea)
+    volume_max: float = 1e7             # reject absurd volumes (weight overflow guard)
 
     # ── analytics (used Phase 3) ──
     dislocation_pct: float = 0.02       # source-disagreement band (2%)

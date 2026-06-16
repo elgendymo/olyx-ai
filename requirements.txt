@@ -6,3 +6,4 @@ requests
 anthropic
 pyarrow
 pytest
+hypothesis

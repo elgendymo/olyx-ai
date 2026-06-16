@@ -93,15 +93,19 @@ def validate(df):
     Future-dated rows are kept on purpose — this feed carries forward data and freshness
     is measured relative to timestamp.max (C2), not the wall clock.
     """
-    if df is None or len(df) == 0:
-        return pd.DataFrame(columns=COLUMNS)
+    # Route empty/None through the same pipeline so the empty result has consistent typed
+    # columns (not object dtype) — keeps validate() idempotent. (found by property testing)
+    if df is None:
+        df = pd.DataFrame(columns=COLUMNS)
     df = df.copy()
     for c in COLUMNS:
         if c not in df.columns:
             df[c] = pd.NA
 
     df["price"] = pd.to_numeric(df["price"], errors="coerce")
-    df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0.0).clip(lower=0.0)
+    # volume is a VWAP weight: anything negative, absurd, or non-numeric -> 0 (neutralize, keep price)
+    vol = pd.to_numeric(df["volume"], errors="coerce")
+    df["volume"] = vol.where((vol >= 0) & (vol <= CONFIG.volume_max), 0.0).fillna(0.0)
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
     for c in ["id", "product_id", "product_name", "source", "currency", "unit"]:
         df[c] = df[c].astype("string").str.strip()
@@ -110,8 +114,9 @@ def validate(df):
     df["currency"] = df["currency"].replace("", pd.NA).fillna("UNKNOWN")
     df["source"] = df["source"].replace("", pd.NA).fillna("unknown")
 
+    pnum = df["price"].to_numpy(dtype="float64", na_value=np.nan)
     keep = (
-        df["price"].notna() & (df["price"] > 0) & np.isfinite(df["price"].to_numpy(dtype="float64", na_value=np.nan))
+        df["price"].notna() & (df["price"] >= CONFIG.price_min) & (df["price"] <= CONFIG.price_max) & np.isfinite(pnum)
         & df["timestamp"].notna()
         & df["product_name"].notna() & (df["product_name"] != "")
         & df["id"].notna() & (df["id"] != "")
