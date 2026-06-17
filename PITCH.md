@@ -1,13 +1,14 @@
 # PITCH.md — Magic Spyglass
 
 ## The pitch (to Jasper)
-Magic Spyglass watches your three disagreeing feeds so you don't have to: it surfaces the handful of
-**tradeable** price dislocations worth acting on *right now* — volume-gated, noise-filtered,
-cross-checked between sources — and answers "is now a good time to sell UCO?" in plain language with
-the exact numbers behind every claim. It refuses to show you a price it doesn't trust: fat-finger
-ticks are auto-killed, stale lines are flagged loudly, and every copilot answer carries a receipt you
-can verify. You spot the move and the mismatch before your competitors — on data you can put real
-money behind.
+Magic Spyglass turns Jasper's morning chaos — 200 unread messages and five price sources that don't
+agree — into one screen: it **summarises the inbox**, surfaces the handful of **tradeable** price
+dislocations worth acting on *right now*, and answers **any** market question in plain language
+("what happened to UCO this week?", "is now a good time to sell?", "which source can't I trust?")
+with the exact numbers beside every answer. It treats the third-party feed as **untrusted** —
+fat-finger ticks are auto-killed, stale lines flagged loudly, and malicious or oversized data bounded
+and escaped — so a price you can't trust never reaches the board. You spot the move and the mismatch
+before your competitors, on data you can put real money behind.
 
 ## The cut — what I deliberately didn't build, and why this slice first
 - **Data integrity before polish.** The graded reality is "Jasper acts on this data," so the time went
@@ -16,9 +17,15 @@ money behind.
 - **No new external price sources.** None exist free at matching product granularity (RME/biodiesel in
   EUR/MT is paywalled PRAs — Platts/Argus/ICIS). Instead I surfaced the sources already in the feed
   and let Jasper scope/compare between them.
-- **No auth / deploy / multi-user.** Single-broker tool — explicitly "care less about."
 - **Local-first LLM (Ollama), fail-silent.** Runs with no API key; the copilot degrades to
   deterministic facts when the model is down — it never blocks the data.
+- **Hardened the feed, not the perimeter.** I spent time treating the *data* as hostile (bounded
+  ingestion, sanitised + escaped output) because that's what Jasper touches — but skipped
+  app-perimeter security (auth, secrets, multi-user, deploy) since it's a single-user local tool.
+- **No alerts / push / mobile.** Jasper pulls the board (it self-refreshes), but it doesn't page him
+  when something moves — proactive alerting is the obvious next step, deliberately deferred.
+- **Single-instrument depth over breadth.** The copilot answers one instrument richly; a
+  side-by-side multi-instrument comparison and a historical "what-if" backtester are not built.
 - **Deferred, with triggers (see PHASES.md "Future work"):** streaming `ijson` ingestion, a copilot
   web-search tool, and unifying OLYX's other data sources (CRM/positions/email) into one pane.
 
@@ -30,6 +37,11 @@ money behind.
 - "Saved capital" in Validation mode is an illustration of impact, not an audited P&L number.
 - There is no real second feed, so "source disagreement" is between the mock's own sources; real
   deployment needs real PRA feeds before the cross-source signal is tradeable.
+- The feed is hardened against bad/hostile data, but the app itself isn't deployment-ready — no auth,
+  secrets management, or monitoring (out of scope for a single-broker local tool, but required before
+  it touches a real desk).
+- Ask the copilot to *compare two* instruments and it answers about one — multi-instrument comparison
+  isn't built yet.
 
 **AI output I had to fix (and how I caught it):**
 1. **A silently dead detector.** AI-written copilot filtered z-score outliers on
