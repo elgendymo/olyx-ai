@@ -128,19 +128,31 @@ def load_cached():
     return df, token
 
 
+# Source filter scopes the dashboard views: a subset of the already-validated frame, so no new
+# I/O and no integrity re-check needed. `sources` is part of the cache key (a sorted tuple).
+# guard() then runs the cross-source circuit breaker once here, so every panel consumes the same
+# fat-finger-free frame (Story 3) and shares one source-attributed kill log (Story 4).
 @st.cache_data(show_spinner=False)
-def view_latest(token):
-    return analytics.latest_with_freshness(load_cached()[0])
+def _scoped(token, sources):
+    df = load_cached()[0]
+    if sources:
+        df = df[df["source"].isin(sources)]
+    return analytics.guard(df)   # -> (clean_df, dropped)
 
 
 @st.cache_data(show_spinner=False)
-def view_vwap(token):
-    return analytics.vwap(load_cached()[0])
+def view_latest(token, sources=()):
+    return analytics.latest_with_freshness(_scoped(token, sources)[0])
 
 
 @st.cache_data(show_spinner=False)
-def view_dislocations(token):
-    return analytics.dislocations(load_cached()[0])
+def view_vwap(token, sources=()):
+    return analytics.vwap(_scoped(token, sources)[0])
+
+
+@st.cache_data(show_spinner=False)
+def view_dislocations(token, sources=()):
+    return analytics.dislocations(_scoped(token, sources)[0])
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -205,28 +217,47 @@ _period, _orb_cls, _phrase = (
     ("evening",   "orb-evening",   "Good evening")   if 18 <= _now_h < 23 else
     ("night",     "orb-night",     "Good night")
 )
+_now_str = _dt.datetime.now().strftime("%a %d %b · %H:%M")
 st.markdown(f"""
-<div style="display:flex;align-items:center;gap:.65rem;margin-bottom:.15rem">
-  <span class="greeting-orb {_orb_cls}"></span>
-  <h1 style="margin:0;font-size:1.9rem;font-weight:800;letter-spacing:-.025em;line-height:1">
-    🔭 <span style="background:linear-gradient(90deg,#e2e8f0,#22d3ee);
-      -webkit-background-clip:text;-webkit-text-fill-color:transparent">Magic Spyglass</span>
-  </h1>
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:.6rem">
+  <div>
+    <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.25rem">
+      <span class="greeting-orb {_orb_cls}"></span>
+      <span style="font-size:.75rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+        color:#67e8f9;font-family:var(--mono)">{_period}</span>
+    </div>
+    <h1 style="margin:0 0 .1rem 0;font-size:2.1rem;font-weight:800;letter-spacing:-.03em;line-height:1.1">
+      {_phrase},&nbsp;<span style="background:linear-gradient(135deg,#c7d2fe 0%,#e2e8f0 60%);
+        -webkit-background-clip:text;-webkit-text-fill-color:transparent">Jasper</span>
+    </h1>
+    <p style="margin:0;color:#64748b;font-size:.82rem;letter-spacing:.01em">
+      🔭 Magic Spyglass &nbsp;·&nbsp; Valid dislocations surfaced. Noise filtered.
+    </p>
+  </div>
+  <div style="text-align:right;flex-shrink:0;padding-top:.2rem">
+    <div style="font-family:var(--mono);font-size:.95rem;font-weight:600;color:#e2e8f0;
+      letter-spacing:.02em">{_now_str}</div>
+    <div style="font-size:.72rem;color:#475569;margin-top:.1rem;letter-spacing:.05em">LOCAL TIME</div>
+  </div>
 </div>
-<p style="margin:0 0 .5rem 0;color:#94a3b8;font-size:.92rem">
-  {_phrase}, <span style="background:linear-gradient(135deg,#c7d2fe 0%,#e2e8f0 60%);
-    -webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:600">Jasper</span>
-  — valid pricing dislocations, surfaced. Noise, ignored.
-</p>
 """, unsafe_allow_html=True)
 if df.empty:
     st.error("Feed unreachable and no cached data. (fail-silent: nothing fabricated)")
     st.stop()
 
-lat = view_latest(token)
-vw = view_vwap(token)
-dis = view_dislocations(token)
-now = df["timestamp"].max()
+# ── source scope ────────────────────────────────────────────────────
+# Each market source (broker_quote, exchange, …) is its own read on the market. Let Jasper
+# narrow to a source — or a few — to see what that source alone is saying. Default = all.
+all_src = sorted(s for s in df["source"].dropna().unique() if s)
+sel = st.multiselect("Market sources", all_src, default=all_src,
+                     help="Scope every panel below to these sources. All = the full market.")
+src_key = tuple(sorted(sel)) if sel and len(sel) < len(all_src) else ()
+dff, dropped = _scoped(token, src_key)   # guarded (fat-fingers removed), shared by curve + log
+
+lat = view_latest(token, src_key)
+vw = view_vwap(token, src_key)
+dis = view_dislocations(token, src_key)
+now = dff["timestamp"].max()
 n_stale = int(lat["is_stale"].sum())
 
 # loud stale banner — stale data loses deals, so it can't be a quiet metric
@@ -234,6 +265,13 @@ if n_stale:
     oldest_h = lat["freshness_sec"].max() / 3600
     st.error(f"⚠ {n_stale} instrument(s) STALE — oldest {oldest_h:.0f}h behind the feed. "
              "Do not trade these lines.")
+# cross-source circuit breaker — what we auto-rejected, attributed to the source that sent it
+if dropped:
+    srcs = ", ".join(sorted({d["source"] for d in dropped}))
+    st.warning(f"🛡 {len(dropped)} fat-finger quote(s) auto-rejected "
+               f"(>{int(CONFIG.circuit_breaker_pct * 100)}% off peer consensus) — source(s): {srcs}.")
+    with st.expander("rejected quotes (source-attributed)"):
+        st.dataframe(dropped, hide_index=True, width="stretch")
 c = st.columns(3)
 c[0].metric("Instruments", lat.shape[0])
 c[1].metric("Newest packet (UTC)", now.strftime("%m-%d %H:%M"))
@@ -265,12 +303,18 @@ with st.container(border=True):
     board["age"] = (board["freshness_sec"] / 60).round(0).astype(int).astype(str) + "m"
     board["vs VWAP"] = board.apply(
         lambda r: "▲" if (r["vwap"] == r["vwap"] and r["last_price"] >= r["vwap"]) else "▼", axis=1)
-    disp = board[["product_name", "last_price", "currency", "unit", "vs VWAP", "age", "is_stale"]]
+    # ⚠ = cross-source MAD outlier: shown (flag, don't drop) so Jasper distrusts before trading it
+    board["⚠"] = board["suspect"].map(lambda s: "⚠" if s else "")
+    disp = board[["product_name", "last_price", "currency", "unit", "vs VWAP", "⚠", "age", "is_stale"]]
     sty = (disp.style
            .map(lambda v: "color:#34d399;font-weight:700" if v == "▲" else "color:#fb7185;font-weight:700",
                 subset=["vs VWAP"])
+           .map(lambda v: "color:#fbbf24;font-weight:700" if v else "", subset=["⚠"])
            .format({"last_price": "{:,.2f}"}))
-    st.dataframe(sty, width="stretch", hide_index=True, height=380)
+    # height fits every row (35px/row + header) so fullscreen shows the whole board, capped so the
+    # inline view stays scannable; Streamlit keeps its own scroll above the cap.
+    _h = min(len(disp) * 35 + 38, 1200)
+    st.dataframe(sty, width="stretch", hide_index=True, height=_h)
 
 # ── Forward curve (full width) ──────────────────────────────────────
 with st.container(border=True):
@@ -279,7 +323,7 @@ with st.container(border=True):
             (r["product_name"], r["unit"], r["currency"]) for r in lat.to_dict("records")}
     pick = st.selectbox("Instrument", list(opts), label_visibility="collapsed")
     name, unit, cur = opts[pick]
-    curve = analytics.forward_curve(df, name, unit=unit, currency=cur)
+    curve = analytics.forward_curve(dff, name, unit=unit, currency=cur)
     if curve.get("status") == "ok":
         v = copilot._verdict_line(curve)
         vcolor = "#fb7185" if "SELL" in v else "#34d399" if "HOLD" in v else "#94a3b8"
@@ -348,3 +392,55 @@ with st.container(border=True):
             brief = copilot.digest_inbox([(w, s, b) for w, _, s, b in MOCK_EMAILS], df, hour=_h)
         st.markdown(f"**{'🌅' if _h < 12 else '☀️' if _h < 17 else '🌙'} {_period} briefing**")
         st.markdown(brief)
+
+# ── 🧪 Validation mode (proof for stakeholders: chaos injection + A/B) ────────
+with st.expander("🧪 Validation mode — prove the guard works (fault injection + A/B)"):
+    st.caption("Inject a synthetic bad tick into the live frame and watch RAW vs GUARDED diverge. "
+               "Demo-only: nothing is persisted, nothing touches the feed.")
+    opts2 = {f"{r['product_name']} · {r['unit']} · {r['currency']}":
+             (r["product_name"], r["unit"], r["currency"]) for r in lat.to_dict("records")}
+    cc = st.columns([3, 2, 2])
+    pick2 = cc[0].selectbox("Instrument", list(opts2), key="chaos_inst")
+    spike = cc[1].slider("Fault size", -0.40, 0.40, 0.25, 0.01,
+                         help="±25% → trips the circuit breaker; ±4% → kept as a real dislocation")
+    vol = cc[2].number_input("Volume (MT)", 1, 100000, 500)
+    pname, punit, pcur = opts2[pick2]
+    chaos = analytics.inject_fault(dff, pname, punit, pcur, spike, volume=vol)
+    raw_board = analytics.latest_with_freshness(chaos)        # what the OLD logic displayed
+    g_clean, g_dropped = analytics.guard(chaos)
+    g_board = analytics.latest_with_freshness(g_clean)        # what Jasper sees now
+
+    def _row(board):
+        m = board[(board["product_name"] == pname) & (board["unit"] == punit) & (board["currency"] == pcur)]
+        return m.iloc[0] if not m.empty else None
+    rraw, rg = _row(raw_board), _row(g_board)
+    a, b = st.columns(2)
+    a.markdown("###### 🔴 RAW (old logic)")
+    if rraw is not None:
+        a.metric(pick2, f"{rraw['last_price']:,.2f} {pcur}",
+                 delta=f"{spike * 100:+.0f}% injected", delta_color="inverse")
+    b.markdown("###### 🛡 GUARDED (new logic)")
+    if rg is not None:
+        flag = " ⚠ suspect" if bool(rg["suspect"]) else ""
+        b.metric(pick2 + flag, f"{rg['last_price']:,.2f} {pcur}",
+                 delta="held at consensus" if g_dropped else "unchanged")
+
+    inj = [d for d in g_dropped if d["source"] == "chaos_inject"]
+    if inj:
+        st.success(f"🛡 Circuit breaker fired — prevented a **{inj[0]['saved_capital']:,.0f} {pcur}** "
+                   f"bad position ({inj[0]['deviation_pct']:.1f}% off consensus {inj[0]['consensus']:,.2f}).")
+    else:
+        st.info("Inside the band — kept as a legitimate dislocation (no breaker, no false positive).")
+
+    # ── Source reputation leaderboard (real drops this window + the injected one) ──
+    alld = list(dropped) + inj
+    if alld:
+        from collections import defaultdict
+        agg = defaultdict(lambda: [0, 0.0])
+        for d in alld:
+            agg[d["source"]][0] += 1
+            agg[d["source"]][1] += d.get("saved_capital", 0.0)
+        lb = sorted(([s, n, round(c, 2)] for s, (n, c) in agg.items()), key=lambda r: -r[1])
+        st.markdown("###### 🏷 Source reputation — rejections this guarded window")
+        st.dataframe({"source": [r[0] for r in lb], "rejected": [r[1] for r in lb],
+                      "bad_capital_blocked": [r[2] for r in lb]}, hide_index=True, width="stretch")
