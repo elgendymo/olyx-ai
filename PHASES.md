@@ -475,3 +475,29 @@ to row count (capped 1200px) so fullscreen shows the whole board.
 
 **Status:** ✅ 89 tests pass (5 new in `tests/test_guard.py`: breaker drop+attribution, dislocation
 kept, lone-source passthrough, suspect flag, fault-injection spike-caught/drift-kept).
+
+## Phase 6d — Broker-facing labels, header fix, e2e calibration
+
+**Labels (per Jasper):** PULSE → **LIVE PRICE BOARD**, 🔮 FORWARD CURVE → **📉 FORWARD CURVE & SELL
+TIMING**, NEEDS ATTENTION NOW → **🎯 TRADE OPPORTUNITIES**. "AI digest" → **Summarize unread emails**.
+Greeting-orb glow was clipped at the page top → header gets `padding-top` + `overflow:visible`.
+Pulse table height removed so inline stays compact and native fullscreen expands fully.
+
+**Stale-banner bug (the big one).** Banner read "56 instruments STALE — oldest 6433h behind." Root
+cause: `feed_now = timestamp.max()` and the dirty feed carries ~489 future-dated junk ticks (newest
+2026-07-16, ~a month ahead). One far-future tick defined "now", so every real instrument looked
+hundreds of hours stale — AND it pushed the source-disagreement window into the empty future, killing
+that detector. Fix: **robust `feed_now`** = latest tick at/under the 99th percentile (ignores the
+future tail); freshness clipped at 0; `stale_after` 1h → **48h** (instruments quote daily/weekly).
+Result on live cache: now ≈ today, stale 56 → 37 (genuinely old lines), disagreement detector alive
+(20 opportunities). Not a fetch failure — the bulk load and bg refresh were always working.
+
+**Circuit-breaker recalibration (found by e2e).** A headless `AppTest` run showed the 20% breaker
+dropping 23 instruments' ticks — including legitimate 20–30% cross-source dislocations (Carbon EUA,
+HVO, UCO), the tool's core signal — and, where the median consensus was junk-contaminated, the GOOD
+ticks. Real spreads top ~30%; true fat-fingers were 800%+. Moved `circuit_breaker_pct` 0.20 → **0.50**
+so AUTO-DROP catches only catastrophic junk (3 ticks: 825% / 92,426% / 101,722%); 20–30% spreads now
+survive → surfaced as opportunities + ⚠-flagged (flag-don't-drop intent preserved).
+
+**Verified:** 89 tests pass; `AppTest` runs end-to-end with no render exception; all renamed sections
+present; banner honest (37 stale).
