@@ -44,8 +44,8 @@ Both forensic trails — plus the two feed-reality bugs the dashboard surfaced a
 future-dated tick made 56/60 lines look stale, and a 20% circuit breaker was eating real 20–30%
 dislocations, i.e. the actual opportunities) — are documented in the build log.
 
-**Time spent (≈ 6.1 h, at the 6-hour cap)** — first code edit **16 Jun 2026 14:56**, last code edit
-**17 Jun 2026 11:37**:
+**Time spent (≈ 6.1 h, at the 6-hour cap)** — first edit **16 Jun 2026 14:56**, last edit
+**17 Jun 2026 12:21**:
 
 | | |
 |---|---|
