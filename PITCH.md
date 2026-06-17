@@ -88,3 +88,8 @@ dislocations, i.e. the actual opportunities) — are documented in the build log
 | | **Total (estimate)** | **≈ 6.1** |
 
 *Total build ≈ 6.1 h — at the 6-hour cap.*
+
+---
+
+📑 **System architecture:** for a deep-dive into the multi-layered trust gates and the deterministic
+copilot pipeline, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
