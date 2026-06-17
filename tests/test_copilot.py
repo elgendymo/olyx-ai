@@ -88,6 +88,25 @@ def test_routing_picks_intent(monkeypatch, query, intent):
     assert copilot.answer(query, df)["intent"] == intent
 
 
+def test_inventory_counts_products_not_instruments(monkeypatch):
+    """'how many products/categories/sources' -> catalogue counts, not instrument groups or a list."""
+    monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: None)
+    df = _frame([
+        {"product_name": "UCO", "unit": "MT", "currency": "EUR"},
+        {"product_name": "UCO", "unit": "MT", "currency": "USD"},   # same product, 2 instruments
+        {"product_name": "RME", "unit": "MT", "currency": "EUR", "source": "broker_quote"},
+    ])
+    f = copilot.answer("how many products do we have?", df)["facts"]
+    assert f["intent"] == "inventory"
+    assert f["products"] == 2 and f["instruments"] == 3      # 2 products, 3 instrument groups
+    assert f["has_categories"] is False                       # no category field in the feed
+    # source / category questions hit the same honest inventory answer
+    assert copilot.answer("how many market sources?", df)["facts"]["intent"] == "inventory"
+    assert copilot.answer("how many categories?", df)["facts"]["intent"] == "inventory"
+    # but a freshness-qualified count stays a freshness aggregate, not inventory
+    assert copilot.answer("how many instruments are stale?", df)["facts"]["intent"] == "feed_age"
+
+
 def test_find_product_word_bounded():
     """A short code must not match inside another word ('perfoRMEr' is not RME; 'UCOME' is not UCO)."""
     df = _frame([{"product_name": "RME"}, {"product_name": "UCO"}, {"product_name": "UCOME"}])

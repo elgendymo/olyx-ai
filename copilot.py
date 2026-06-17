@@ -240,7 +240,7 @@ def _single_asset(facts):
         return c["product_name"] if c.get("status") == "ok" else None
     # data_quality is ALWAYS deterministic: its "items" are REJECTED ticks; letting the LLM narrate
     # one risks presenting a killed fat-finger as the live price ("Carbon EUA is 87,250, suspect").
-    if facts.get("intent") == "data_quality":
+    if facts.get("intent") in ("data_quality", "inventory"):
         return None
     rows = facts.get("instruments") or facts.get("items") or []
     names = {r.get("instrument") for r in rows}
@@ -434,6 +434,25 @@ def _route(query, df):
     if intent == "freshness":
         lat = analytics.latest_with_freshness(df)
 
+        # Inventory / catalogue counts — "how many products?", "how many categories?", "currencies?".
+        # Distinct from feed_age: a PRODUCT (product_name) is not an INSTRUMENT (product×unit×currency).
+        # There is NO category field in the feed, so we say so rather than inventing a number.
+        _is_count = any(w in q for w in ("how many", "number of", "count of", "total", "how much"))
+        _stale_fresh = "stale" in q or "fresh" in q
+        if (not product and _is_count and not _stale_fresh
+                and any(w in q for w in ("product", "categor", "currenc", "unit", "instrument",
+                                         "line", "track", "commodit", "item", "source", "broker",
+                                         "vendor"))):
+            return intent, {
+                "intent": "inventory",
+                "products": int(df["product_name"].nunique()),
+                "instruments": int(df.groupby(["product_name", "unit", "currency"]).ngroups),
+                "currencies": sorted(df["currency"].dropna().unique().tolist()),
+                "units": sorted(df["unit"].dropna().unique().tolist()),
+                "sources": sorted(df["source"].dropna().unique().tolist()),
+                "has_categories": False,
+            }
+
         # Feed-level age query — "how old is the data?", "is the feed stale?", "data age?"
         # Return aggregate stats, not a per-instrument list.
         _feed_age_q = ("how old", "age of", "data age", "feed age", "feed old", "feed stale",
@@ -605,6 +624,13 @@ def _facts_to_text(facts):
         return "; ".join(f"{i['instrument']} ({i['currency']}) {i['trades']} trades, "
                          f"VWAP {i['vwap'] if i['vwap'] is not None else 'n/a'}"
                          for i in items[:8])
+    if intent == "inventory":
+        f = facts
+        cat = "" if f["has_categories"] else " There is no category field in the feed."
+        return (f"{f['products']} products across {f['instruments']} instruments "
+                f"(product × unit × currency). {len(f['currencies'])} currencies "
+                f"({', '.join(f['currencies'])}), {len(f['units'])} units ({', '.join(f['units'])}), "
+                f"{len(f['sources'])} sources.{cat}")
     if intent == "feed_age":
         f = facts
         return (f"Feed newest packet: {f['feed_newest_utc']} UTC. "
