@@ -62,11 +62,38 @@ def _clear_cache():
     ("did the circuit breaker fire today?", "data_quality"),
     # count phrasings -> aggregate feed_age, not a price list
     ("how many instruments are stale?", "freshness"),
+    # market overview / summary
+    ("give me the market summary", "overview"),
+    ("what's the market doing?", "overview"),
+    ("anything I should worry about?", "overview"),
+    # volatility -> history (biggest-movers proxy)
+    ("what's the most volatile product?", "history"),
+    # "across" must NOT hijack to dislocations via the old "cross" keyword
+    ("highest price across products?", "freshness"),
+    # vs-VWAP comparison (the dashboard ▲/▼ signal)
+    ("is UCO above or below VWAP?", "vwap_compare"),
+    # gainer/loser/winner phrasings -> history
+    ("biggest winners today", "history"),
+    ("worst performer this week", "history"),
+    # data-quality "trust" + age ranking
+    ("can I trust the data?", "data_quality"),
+    ("oldest data point?", "freshness"),
+    ("how many products do we track?", "freshness"),
 ])
+
+
 def test_routing_picks_intent(monkeypatch, query, intent):
     monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: None)
     df = _frame([{"price": 1000 + i, "timestamp": f"2026-06-0{i+1}T08:00:00Z"} for i in range(5)])
     assert copilot.answer(query, df)["intent"] == intent
+
+
+def test_find_product_word_bounded():
+    """A short code must not match inside another word ('perfoRMEr' is not RME; 'UCOME' is not UCO)."""
+    df = _frame([{"product_name": "RME"}, {"product_name": "UCO"}, {"product_name": "UCOME"}])
+    assert copilot._find_product("worst performer this week", df) is None
+    assert copilot._find_product("what's UCOME doing?", df) == "UCOME"
+    assert copilot._find_product("eua price?", _frame([{"product_name": "Carbon EUA"}])) == "Carbon EUA"
 
 
 def test_finds_product_in_query():
