@@ -5,29 +5,29 @@ surface **valid pricing dislocations** in renewable feedstocks (HVO, UCO, RME) a
 certificates (THG-Quoten, EREs) — and answers "is now a good time to sell?" with cited numbers.
 
 **Why:** Jasper trades live capital off ~200 morning messages, conflicting feeds, and gut feel.
-Wrong data loses deals, so this tool optimizes for **data integrity and ingestion resilience over
-visual polish** — corrupted/half-computed numbers never reach the screen.
+Wrong data loses deals, so this tool puts **trustworthy numbers over pretty screens** — bad, stale,
+or half-computed prices never reach him, even when the feed is slow, failing, or dirty.
 
 ## What it does (top-to-bottom, as the dashboard lays it out)
 - **Market sources** — scope every panel below to one or more sources (e.g. just `broker_quote`).
 - **Header metrics + banners** — instruments tracked · newest packet · stale count, with a loud
   **STALE** banner and a 🛡 fat-finger **rejection** banner.
-- **🎯 Trade Opportunities** — the hero: volume-gated, ranked dislocations to act on first
-  (source disagreement + z-score), tradeable-first.
-- **📈 Live Price Board** — latest price per instrument, age vs the feed clock, ▲/▼ vs VWAP,
-  ⚠ suspect flag.
-- **📉 Forward Curve & Sell Timing** — "is now a good time to sell?" projected trend + a
-  deterministic SELL/HOLD verdict per instrument.
-- **📨 Inbox** — client/counterparty mail with per-email asset + sentiment chips and a one-click
-  **Summarize unread emails** AI digest.
-- **🧪 Validation mode** — fault-injection + RAW-vs-GUARDED A/B, saved-capital, source-reputation
-  leaderboard.
-- **🔭 Copilot (sidebar)** — plain-language Q&A ("what happened to UCO this week?"),
-  deterministic-compute → LLM-narrate, with a verifiable facts receipt beside every answer.
+- **🎯 Trade Opportunities** — the hero: the dislocations worth acting on first, ranked, with the
+  low-volume noise filtered out (real size only) and the most actionable on top.
+- **📈 Live Price Board** — latest price per instrument, how old it is vs the feed, whether it's
+  above/below its average (VWAP), and a ⚠ on any price that looks off.
+- **📉 Forward Curve & Sell Timing** — "is now a good time to sell?" — the projected trend plus a
+  clear SELL/HOLD signal per instrument.
+- **📨 Inbox** — client/counterparty mail with an asset + bullish/bearish tag per message and a
+  one-click **Summarize unread emails** briefing.
+- **🧪 Validation mode** — inject a fake bad price and watch the old (unguarded) vs new (guarded)
+  view side-by-side, with the € it would have saved and a per-source reliability scoreboard.
+- **🔭 Copilot (sidebar)** — ask in plain language ("what happened to UCO this week?"); the numbers
+  are computed, then explained — and the exact figures sit beside every answer so you can check it.
 
-**Cross-source guard (under the hood):** a circuit breaker auto-drops catastrophic fat-finger ticks
-(>50% off contemporaneous peer consensus) and flags ⚠ statistical outliers, so a broken tick never
-reaches the board.
+**Cross-source guard (under the hood):** automatically drops a fat-finger price that's wildly off
+what the other sources quote at the same time (>50%), and flags the milder odd ones with ⚠ — so a
+broken tick never reaches the board.
 
 ## Stack
 Streamlit + pandas/numpy + plotly; copilot on a local-first LLM via Ollama (swappable to
@@ -69,7 +69,7 @@ model `qwen2.5:7b`), `OLYX_LLM_MODEL=…`, `OLLAMA_HOST=…`. Cloud providers re
 - `analytics.py` — VWAP, dislocation, freshness, forward curve, cross-source `guard()` + fault
   injection (pure pandas, grouped per instrument)
 - `config.py` — tunable thresholds (the trader's calibration knob)
-- `llm.py` — single Anthropic client with retry + fail-safe
+- `llm.py` — swappable LLM client (Ollama default), retry + fail-silent
 - `copilot.py` — deterministic-compute → LLM-narrate-with-citations; inbox summarizer
 - `app.py` — Streamlit dark-card dashboard
 
