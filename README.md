@@ -25,15 +25,28 @@ Streamlit + pandas/numpy + plotly, Anthropic SDK for the copilot. Single-user, n
 ```bash
 python3 -m venv .venv && source .venv/bin/activate   # `python`/`streamlit` resolve here after activate
 pip install -r requirements.txt
-ollama pull qwen2.5:7b   # local copilot model — no API key needed (default provider)
 streamlit run app.py     # opens http://localhost:8501
 python -m pytest         # math + resilience + property + guard + copilot tests
 ```
 First launch fetches ~1yr of history from the mock feed (~1–2 min, cold Render); after that it
 reads the parquet cache (sub-second) and refreshes in the background.
 
-LLM is swappable via env (no key needed for the local default):
-`OLYX_LLM_PROVIDER=ollama|anthropic|openai`, `OLYX_LLM_MODEL=…`. Cloud providers read
+### Copilot LLM (required for the AI summaries & narration)
+The AI features — the inbox **"Summarize unread emails"** digest and the copilot's plain-language
+answers — need an LLM. It defaults to a **local** model via [Ollama](https://ollama.com) (no API
+key, no egress) and is **not auto-installed**; set it up once:
+```bash
+# 1. install Ollama (macOS): brew install ollama   (or download from ollama.com)
+# 2. start it (local server on :11434):             ollama serve &
+# 3. pull the default model:                         ollama pull qwen2.5:7b
+```
+**Graceful degradation (by design, not a substitute):** if no LLM is reachable, nothing crashes —
+the copilot returns the deterministic **facts receipt** and the digest returns the structured
+per-email asset+sentiment lines. The numeric dashboard (prices, dislocations, freshness, curve)
+is fully usable without an LLM, but the *AI summarisation/narration* is only there with one running.
+
+LLM is swappable via env: `OLYX_LLM_PROVIDER=ollama|anthropic|openai` (default `ollama`,
+model `qwen2.5:7b`), `OLYX_LLM_MODEL=…`, `OLLAMA_HOST=…`. Cloud providers read
 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`. The feed endpoint is one env var: `FEED_BASE_URL`.
 
 > Tests are run with `python -m pytest` (the `-m` puts the repo root on the import path); plain

@@ -1,7 +1,7 @@
 """Swappable LLM client — one function, many providers, fail-silent (Briefy's pattern).
 
-Demo default is a LOCAL model via Ollama (no API key, no egress): `llama3.1:8b`, which
-Briefy benchmarked as its "gold standard" small tool-caller. Swap provider/model with one
+Demo default is a LOCAL model via Ollama (no API key, no egress): `qwen2.5:7b`, which won our
+narration bake-off (read dislocations correctly, more articulate). Swap provider/model with one
 env var; cloud providers (anthropic, openai) are thin adapters that read their own key.
 
 Critical design choice: this layer NARRATES, it never computes. The copilot hands it a

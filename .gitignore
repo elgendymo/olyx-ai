@@ -8,3 +8,6 @@ data/
 cache/
 .DS_Store
 .pytest_cache/
+.hypothesis/
+.idea/
+.vscode/
