@@ -426,3 +426,52 @@ decimals under the Styler (→ `{:,.2f}`); naive sentiment matched substrings ("
 **Verified** via Chrome MCP across multiple screenshots; 84 tests pass.
 
 **Status:** ✅ committing Phase 5d. Next: Phase 6 — `PITCH.md`.
+
+## Phase 6a — Multi-source scope (gain max market info, no new feeds)
+
+**Why:** brokers want to read each market source on its own (broker_quote vs exchange vs …). No
+free external feed matches the products (RME/biodiesel, EUR/MT) — the space is paywalled PRAs
+(Platts/Argus/ICIS) — so adding sources would mean *different* products, which Jasper doesn't want.
+Instead we surface the sources **already in the feed** (the `source` field).
+
+**Built:** a "Market sources" multiselect that scopes every panel (Pulse, opportunity queue,
+forward curve, metrics, stale banner). It's a subset of the already-validated frame → **no new I/O,
+no integrity re-check**; rate-limit backoff (`feed._get`) and `validate()` still own those concerns.
+`sources` is part of the cache key, so views stay deterministic per selection.
+
+## Phase 6b — Cross-source validation (defense-in-depth circuit breaker)
+
+**Why:** the Pulse board's "latest price" was the **one number Jasper trades on** and it was
+unguarded — a raw last tick. A single fat-finger print (RME at 15,247 not 1,524) became the
+displayed price and fed the z-score detector. The MAD filter only protected VWAP/curve, pooled
+across sources, and couldn't attribute a bad print to a source.
+
+**Built (`analytics.guard()` + `latest_with_freshness` + `circuit_breaker_pct` knob):**
+- **Circuit breaker** — drops *recent* ticks >20% off the **contemporaneous peer consensus** (median
+  of each source's latest). History untouched, so trending products aren't nuked. Needs ≥2 live
+  sources; a lone source passes through.
+- **MAD suspect flag** — survives the breaker but is a cross-source MAD outlier → shown with a ⚠
+  badge (flag, don't drop — a 2–5% dislocation is *money*, not bad data).
+- **Source attribution** — every drop logged with its source for vendor-quality tracking, surfaced
+  in a dashboard banner + table.
+
+**Deliberate deviation from spec:** the breaker lives in `analytics.guard()`, not `feed.validate()`.
+`validate()` sees the whole 1-yr frame with no time context — a 20% rule there would drop legitimate
+trends. "Last known consensus" = contemporaneous peers, which is what guard does.
+
+## Phase 6c — Validation mode (proof for stakeholders) + fullscreen fix
+
+**Why:** stakeholders want to *see* the guard work, not read code. The prod playbook (shadow mode,
+staging mirror, Grafana) assumes a live trading stream that doesn't exist here — **cut as theatre**.
+What proves value on a mock feed in a demo:
+- **Fault injection (chaos)** — `analytics.inject_fault()` appends one synthetic tick `pct` off the
+  latest; ±25% trips the breaker, ±4% is kept as a real dislocation.
+- **RAW vs GUARDED A/B** — left spikes, right holds at consensus (+ ⚠).
+- **Saved-capital** — `volume × |price − consensus|`, the € a bad position would have cost.
+- **Source reputation leaderboard** — rejections + € blocked, grouped by source.
+
+**Fullscreen fix:** the Pulse board's hardcoded `height=380` truncated the table; height now scales
+to row count (capped 1200px) so fullscreen shows the whole board.
+
+**Status:** ✅ 89 tests pass (5 new in `tests/test_guard.py`: breaker drop+attribution, dislocation
+kept, lone-source passthrough, suspect flag, fault-injection spike-caught/drift-kept).
