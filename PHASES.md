@@ -158,7 +158,7 @@ idempotency hold on real data.
 ## Phase 3.6 — Checklist reflection (pre-LLM)
 
 Audited Phases 1–3.5 against the Senior Product Engineer checklist. Sections 1 & 2 complete;
-Section 3 is Phase 4/5 (chat session_state already done); Section 4 is Phase 6 (PITCH).
+Section 3 is Phase 4/5 (chat session_state already done); Section 4 is Phase 6.
 
 **Two gaps settled:**
 - **Forward-curve sentinel (fixed).** `forward_curve` now ALWAYS returns a dict with `status`
@@ -168,11 +168,11 @@ Section 3 is Phase 4/5 (chat session_state already done); Section 4 is Phase 6 (
 - **Zero/negative-volume — CONSCIOUS DEVIATION (kept).** Checklist says *drop* zero/negative-volume
   rows; we **keep the price and zero the weight**. Rationale: a 0/indicative quote still carries a
   valid price level for Pulse/freshness/dislocation, and VWAP already excludes zero weight — dropping
-  would discard ~241 live price points. → **PITCH "Cut/Truth" entry.**
+  would discard ~241 live price points. → **deliberate cut, documented.**
 
 **Still scheduled (on track, not gaps):** compute≠narrate + inbox sentiment (Phase 4); analytics
 cache-by-token — mechanism ready (`bulk()` returns `fetched_at`), consumed in Phase 5; `base_url` is
-already a one-line env failover; PITCH "The Cut" (Phase 6).
+already a one-line env failover (Phase 6).
 
 **Test:** `pytest tests/` → **48 passed**.
 
@@ -194,7 +194,7 @@ already a one-line env failover; PITCH "The Cut" (Phase 6).
 **Why local-first:** user has no Anthropic key. Ollama runs offline, no egress, no cost. Swapping to
 a cloud key later = one env var (`OLYX_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`).
 
-**Limitations (deliberately accepted; documented for PITCH):**
+**Limitations (deliberately accepted; documented):**
 1. **Not deterministic.** Even temp 0 + seed, local generation can vary (kv-cache/threads). So the
    determinism *guarantee* stays on the compute layer; narration is allowed to vary → we test
    plumbing + fail-safe, NOT prose (golden/property tests are wrong here).
@@ -234,7 +234,7 @@ opportunities?" → cited RME 19% / SAF HEFA 8.57% spreads; inbox sentiment narr
    filtering. → propose robust aggregation (median/MAD winsorize) before curve & VWAP. **DECISION PENDING.**
 2. 🟡 **Small-model inbox sentiment is unreliable** — llama3.1:8b hallucinated "Bearish on Crude Oil"
    (not in the text) vs naive "Bullish". Expected (Phase 4a limitation); naive label stays
-   authoritative; PITCH "Truth" entry. Optional: prompt tweak "name only assets in the messages".
+   authoritative. Optional: prompt tweak "name only assets in the messages".
 
 **Status:** ✅ committed `cce7678`.
 
@@ -285,7 +285,7 @@ slope −1.46, 90d projection 1747 — sane. Copilot now narrates realistic numb
   false reject. Fixed: whole-word month names (`\b…\b`).
 - Renamed `age_min`→`age_minutes` (model misread minutes as days live).
 
-**The honest residual risk (PITCH Truth):** grounding stops fabricated *numbers*, NOT
+**The honest residual risk:** grounding stops fabricated *numbers*, NOT
 *misinterpretation* — llama cited the real "2" and still concluded "no opportunities". No prompt or
 8B fixes that; the facts receipt stays on screen so Jasper verifies meaning, not just digits.
 
@@ -399,7 +399,7 @@ graded on data integrity, not polish.
 Instead: a small hand-written CSS block via `st.markdown(unsafe_allow_html=True)` — accent card
 borders + gradient, mono uppercase eyebrow headers (cyan), boxed metrics, darker sidebar, tighter
 chat/dataframe. No dependency, no iframe/React fight; degrades gracefully if a testid drifts.
-AppTest: no exception. (→ PITCH "Cut": evaluated st_tailwind, chose stdlib CSS.)
+AppTest: no exception. (Deliberate cut: evaluated st_tailwind, chose stdlib CSS.)
 
 **Status:** ✅ committed `7dfed35`.
 
@@ -425,7 +425,7 @@ decimals under the Styler (→ `{:,.2f}`); naive sentiment matched substrings ("
 
 **Verified** via Chrome MCP across multiple screenshots; 84 tests pass.
 
-**Status:** ✅ committing Phase 5d. Next: Phase 6 — `PITCH.md`.
+**Status:** ✅ committing Phase 5d. Next: Phase 6.
 
 ## Phase 6a — Multi-source scope (gain max market info, no new feeds)
 
@@ -501,3 +501,25 @@ survive → surfaced as opportunities + ⚠-flagged (flag-don't-drop intent pres
 
 **Verified:** 89 tests pass; `AppTest` runs end-to-end with no render exception; all renamed sections
 present; banner honest (37 stale).
+
+### How both bugs were detected (method)
+
+Neither bug was found by the unit suite — both needed **real dirty data**. Worth recording because
+"handle the feed's reality" is the graded pillar.
+
+1. **The tool warned on itself.** The stale banner read "oldest **6433h** behind" (~268 days). The
+   number was *implausible on its face* — a freshness warning showing a quarter of a year is
+   self-evidently broken (crying wolf on 56/60 lines). The dashboard surfaced its own bug.
+2. **Confirmed empirically, not by assumption.** Rather than guess-and-patch the threshold, I queried
+   the actual cache (`feed._read_cache()`) and printed the timestamp distribution — min, max, 99th
+   percentile, rows beyond the 99th, per-instrument freshness. The evidence was unambiguous:
+   `timestamp.max = 2026-07-16` (~a month ahead) vs 99th pct `2026-06-15` (≈ today), 489 future-dated
+   rows. A single future outlier was defining "now".
+3. **The breaker bug needed an e2e run.** All 89 unit tests passed — they use small *clean synthetic*
+   frames where `max()` ≈ the 99th pct and there are no fat-fingers, so the bug was invisible to them.
+   It only appeared when the whole app ran headless (`streamlit.testing.v1.AppTest`) against the full
+   live cache: `guard()`'s drop logs showed the 20% breaker eating real 20–30% Carbon/HVO/UCO
+   dislocations. Reading the side-effect logs of a real run, not asserting on a fixture, caught it.
+
+**Takeaway:** clean-room tests prove the math; only real-feed inspection + an end-to-end run prove the
+behaviour. Both bugs hid behind a green test suite.
