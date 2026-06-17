@@ -40,6 +40,17 @@ def _clear_cache():
     ("what's the vwap for UCO?", "vwap"),
     ("how fresh is the latest price?", "freshness"),
     ("hello what can you do", "help"),
+    # signal phrasings must reach the dislocation/z-score detector, not the price board
+    ("what signal does Tallow Cat 1 have?", "dislocations"),
+    ("any indicator on UCO?", "dislocations"),
+    ("anything interesting today?", "dislocations"),
+    ("show me what stands out", "dislocations"),
+    # momentum / timing -> forward curve (UCO is the product in the test frame)
+    ("is UCO bullish or bearish?", "forward_curve"),
+    ("should i buy UCO now?", "forward_curve"),
+    # generic "tell me about" -> price board (freshness is the catch-all)
+    ("tell me about POME", "freshness"),
+    ("show me the board", "freshness"),
 ])
 def test_routing_picks_intent(monkeypatch, query, intent):
     monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: None)

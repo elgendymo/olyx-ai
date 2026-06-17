@@ -42,6 +42,12 @@ _INTENTS = [
         "outlier", "spike", "anomal", "z-score", "sigma", "deviation", "abnormal",
         # opportunity queue
         "opportunity queue", "queue", "attention", "flag", "alert",
+        # signal / actionable (a broker asks "what signal does X have?")
+        "signal", "indicator", "sign", "actionable", "edge", "setup", "play",
+        "anything interesting", "what's hot", "whats hot", "where's the money",
+        "wheres the money", "stand out", "stands out", "standout", "red flag",
+        "unusual", "weird", "strange", "off the mark", "out of line", "act on",
+        "worth trading", "worth a look", "what should i trade", "what to trade",
     )),
 
     # ── Forward curve / timing ───────────────────────────────────────
@@ -60,6 +66,14 @@ _INTENTS = [
         # projections
         "expect", "prediction", "target", "price target",
         "seasonal", "seasonality", "end of year", "eoy",
+        # momentum / direction words a broker uses
+        "momentum", "bullish", "bearish", "rally", "rallying", "rising", "falling",
+        "climbing", "declining", "soften", "softening", "firm", "firming",
+        "weaken", "weakening", "strengthen", "going up", "going down", "headed",
+        "where is it going", "where's it going", "future price",
+        # buy/sell/hold timing decisions
+        "buy", "buying", "should i", "entry", "exit", "lock in", "take profit",
+        "cut", "average in", "time to", "too late", "too early",
     )),
 
     # ── VWAP / volume-weighted average ──────────────────────────────
@@ -70,6 +84,9 @@ _INTENTS = [
         "market average", "mid", "midpoint",
         "liquid", "liquidity", "most traded", "most active", "volume on",
         "how many trades", "trade count", "turnover",
+        # "where does it usually trade" / typical level
+        "weighted average", "vol-weighted", "typical price", "usual price",
+        "usually trade", "normal price", "average for", "average price of",
     )),
 
     # ── Latest prices / freshness / pulse ───────────────────────────
@@ -94,6 +111,12 @@ _INTENTS = [
         "how old", "when was", "last seen",
         # compliance products often asked by price
         "thg", "ere", "certificate", "credit",
+        # generic "tell me about X" phrasings (safe here: freshness is the LAST intent, so
+        # these only catch queries no sharper intent claimed — they default to the price board)
+        "trading at", "going for", "value", "worth", "show me", "tell me about",
+        "info on", "details on", "what about", "status", "snapshot", "board",
+        "overview", "summary", "recent", "newest", "outdated", "lagging",
+        "look at", "check", "any news on", "where's", "wheres", "give me",
     )),
 ]
 
