@@ -577,3 +577,33 @@ market doing?", "anything I should worry about?"), **history** (timeframe change
 signal), and count phrasings → aggregate feed_age.
 
 **Verified:** 117 tests pass (+12); rounds 8–10 of the live battery returned zero misroutes.
+
+## Phase 6g — Ingestion security hardening (untrusted feed, zero-trust)
+
+Threat model: the third-party feed is hostile/compromisable. Ranked real risks for this app and the
+defense-in-depth response — stdlib-first, no new deps.
+
+1. **HTML/script injection (highest, concrete).** `product_name`/`source` flow from the feed into
+   `st.markdown(..., unsafe_allow_html=True)` — a feed sending `product_name:"<img src=x onerror=…>"`
+   = stored-XSS in Jasper's browser. Fix: **`html.escape()` every feed-derived string at the render
+   boundary** (hero opportunity rows + inbox). Chose stdlib `html.escape` over `bleach` — we never
+   want feed data to *be* HTML, so escape-all beats sanitize-some.
+2. **Resource exhaustion / DoS.** `_parse_stream` accumulated all records with no bounds — a huge
+   stream or gzip/decompression bomb → OOM. Fix: hard caps in `_parse_stream` — `max_records`
+   (200k), `max_stream_bytes` (200MB decoded), `max_line_bytes` (2MB/line, oversized skipped),
+   bounded fallback buffer. Truncation is **logged, never silent** (a silent cap reads as "ingested
+   everything").
+3. **String abuse.** Fix: `validate()` — the single sanitization chokepoint — strips C0/C1 control
+   chars + null bytes and truncates to `max_str_len` (256) on every string field, before anything
+   stores or renders them (vectorized: 48k rows in 0.05s).
+
+Layers compose: even if one is bypassed, the next holds (bounds → sanitize → escape). TLS verification
+is on (requests default; never `verify=False`). Numeric attacks were already covered (price/volume
+caps, NaN/Inf drop, robust feed_now).
+
+**Considered, not adopted:** `pydantic` per-record schema validation — the vectorized `validate()` +
+bounds is leaner for 50k rows and already the enforced chokepoint; `bleach` — escape-all is stricter
+than HTML sanitization for fields that should never contain markup.
+
+**Verified:** 123 tests pass (+5 security: control-char/null strip, length cap, injection-escaped-at-
+render, record-count cap, oversized-line skip); e2e clean; validate 48k rows in 0.05s.
