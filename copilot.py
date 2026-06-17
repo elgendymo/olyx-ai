@@ -28,6 +28,30 @@ _SYSTEM = (
 )
 
 _INTENTS = [
+    # ── Data quality / guard (rejected fat-fingers, suspect prices, source reputation) ──
+    # Covers: "any bad ticks?", "which broker is unreliable?", "is this price suspect?",
+    # "did the circuit breaker fire?", "can I trust this?", "how much bad capital blocked?"
+    ("data_quality", (
+        "data quality", "reject", "rejected", "fat finger", "fat-finger", "fatfinger",
+        "bad tick", "bad data", "bad price", "wrong price", "fake price", "phantom",
+        "circuit breaker", "breaker", "guard", "dropped tick", "filtered out",
+        "suspect", "suspicious", "dodgy", "dirty data", "corrupt", "erroneous", "garbage",
+        "can i trust", "trustworthy", "reliable", "unreliable", "reputation",
+        "which source", "which broker", "bad source", "source quality", "vendor quality",
+        "worst source", "saved capital", "capital blocked", "bad capital", "blocked",
+    )),
+
+    # ── History / timeframe change (backward-looking: "what happened to UCO this week?") ──
+    ("history", (
+        "what happened", "what's happened", "whats happened", "happened to", "happened with",
+        "this week", "last week", "past week", "this month", "last month", "past month",
+        "this quarter", "past quarter", "year to date", "ytd", "lately", "recently moved",
+        "week on week", "week-on-week", "wow", "month on month", "mom",
+        " ago", "compared to", "vs last", "over the last", "over the past",
+        "how much has", "how much did", "how far has", "moved", "movement", "performance",
+        "how did", "gain", "loss", "gained", "lost", "rose", "fell", "dropped by", "up or down",
+    )),
+
     # ── Pricing dislocations / arbitrage ────────────────────────────
     # Covers: "any arb?", "spread on UCO?", "mismatch", "source disagreement", z-score spikes
     ("dislocations", (
@@ -60,6 +84,7 @@ _INTENTS = [
         # curve shape
         "contango", "backwardation", "term structure", "shape",
         "trend", "uptrend", "downtrend", "flat", "slope", "direction",
+        "verdict", "sell timing", "sell signal", "hold signal",
         # horizon
         "30 day", "60 day", "90 day", "30d", "60d", "90d",
         "next month", "next quarter", "q1", "q2", "q3", "q4",
@@ -199,11 +224,52 @@ def _route(query, df):
     intent = next((name for name, kws in _INTENTS if any(k in q for k in kws)), "help")
     product = _find_product(query, df)
 
+    if intent == "data_quality":
+        _, dropped = analytics.guard(df)
+        lat = analytics.latest_with_freshness(df)
+        # product-specific ("is the UCO price suspect?") scopes EVERY number to that instrument
+        if product:
+            dropped = [d for d in dropped if d["product_name"] == product]
+            lat = lat[lat["product_name"] == product]
+        n_suspect = int(lat["suspect"].sum()) if "suspect" in lat else 0
+        by_src = {}
+        for d in dropped:
+            by_src[d["source"]] = by_src.get(d["source"], 0) + 1
+        leaderboard = [{"source": s, "rejected": n}
+                       for s, n in sorted(by_src.items(), key=lambda x: -x[1])]
+        saved = round(sum(d.get("saved_capital", 0.0) for d in dropped), 2)
+        items = [{"instrument": d["product_name"], "currency": d["currency"], "source": d["source"],
+                  "price": d["price"], "consensus": d["consensus"], "deviation_pct": d["deviation_pct"]}
+                 for d in dropped[:8]]
+        return intent, {"intent": intent, "scope": product or "market", "rejected_total": len(dropped),
+                        "suspect_flagged": n_suspect, "bad_capital_blocked": saved,
+                        "by_source": leaderboard, "items": items}
+
+    if intent == "history":
+        # parse the timeframe from the query (default: 1 week)
+        days = (1 if any(w in q for w in ("today", "24h", "24 hour", "intraday")) else
+                90 if any(w in q for w in ("quarter", "90d", "90 day", "3 month")) else
+                365 if any(w in q for w in ("year", "ytd", "12 month")) else
+                30 if any(w in q for w in ("month", "30d", "30 day", "4 week")) else
+                7)
+        if product:
+            return intent, {"intent": intent, "change": analytics.price_change(df, product, days)}
+        # no product → rank the market's biggest movers over the window ("what moved this week?")
+        movers = []
+        for p in df["product_name"].dropna().unique():
+            ch = analytics.price_change(df, p, days)
+            if ch.get("status") == "ok":
+                movers.append({"instrument": ch["product_name"], "currency": ch["currency"],
+                               "change_pct": ch["change_pct"], "direction": ch["direction"],
+                               "start_price": ch["start_price"], "end_price": ch["end_price"]})
+        movers.sort(key=lambda m: abs(m["change_pct"]), reverse=True)
+        return intent, {"intent": intent, "days": days, "movers": movers[:10]}
+
     if intent == "dislocations":
         res = analytics.dislocations(df)
         # Sub-query: z-score / sigma spikes only ("any outliers?", "z-score?", "sigma move?")
         if any(w in q for w in ("z-score", "sigma", "outlier", "spike", "zscore", "statistical")):
-            res = res[res["type"] == "zscore_spike"] if not res.empty else res
+            res = res[res["type"] == "zscore"] if not res.empty else res
         # Sub-query: source spread / disagreement only ("source spread", "sources disagree")
         elif any(w in q for w in ("source", "disagree", "sources", "cross", "inter-source")):
             res = res[res["type"] == "source_disagreement"] if not res.empty else res
@@ -281,7 +347,11 @@ def _route(query, df):
         # Return aggregate stats, not a per-instrument list.
         _feed_age_q = ("how old", "age of", "data age", "feed age", "feed old", "feed stale",
                        "how stale", "when was", "last update", "last refresh", "data fresh",
-                       "is the data", "is data", "feed delay", "feed lag")
+                       "is the data", "is data", "feed delay", "feed lag",
+                       # counts ("how many stale?", "number of stale lines", "how many instruments")
+                       "how many stale", "how many fresh", "number of stale", "number of fresh",
+                       "count of stale", "count stale", "how many instrument", "how many product",
+                       "how many line", "number of instrument", "total instrument", "how many are stale")
         if not product and any(w in q for w in _feed_age_q):
             now_ts = analytics.feed_now(df)
             n_total = len(lat)
@@ -339,7 +409,9 @@ def _route(query, df):
         "pricing dislocations, arb opportunities, source spread, z-score spikes",
         "VWAP / volume-weighted average / fair value per instrument",
         "forward curve, contango/backwardation, sell-timing signal (30/60/90d)",
-        "data freshness — stale flags, feed lag, last-seen age",
+        "data freshness — stale flags, feed lag, last-seen age, how many stale/fresh",
+        "history — what happened to X this week/month, biggest movers over a timeframe",
+        "data quality — rejected fat-fingers, suspect prices, which source is unreliable, capital blocked",
         "inbox summarisation — paste any broker message or cargo offer",
     ]}
 
@@ -440,6 +512,27 @@ def _facts_to_text(facts):
             return "No quotes loaded."
         return "; ".join(f"{i['instrument']} {i['price']} {i['currency']} "
                          f"({i['age_minutes']}m old{', STALE' if i['stale'] else ''})" for i in items[:5])
+    if intent == "data_quality":
+        where = "" if facts.get("scope", "market") == "market" else f" for {facts['scope']}"
+        if not facts["rejected_total"] and not facts["suspect_flagged"]:
+            return f"No bad ticks{where}: nothing tripped the circuit breaker, no suspect prices flagged."
+        lb = "; ".join(f"{s['source']} ({s['rejected']})" for s in facts["by_source"][:5])
+        return (f"{facts['rejected_total']} fat-finger tick(s) auto-rejected{where}, "
+                f"{facts['bad_capital_blocked']} bad capital blocked; {facts['suspect_flagged']} "
+                f"suspect price(s) flagged. Worst sources: {lb or 'n/a'}.")
+    if intent == "history":
+        if "change" in facts:                       # single product
+            c = facts["change"]
+            if c.get("status") != "ok":
+                return f"No history for {c.get('product_name')}: {c.get('reason', 'no data')}."
+            return (f"{c['product_name']} ({c['currency']}/{c['unit']}) {c['direction']} "
+                    f"{c['change_pct']:+}% over {c['days']}d: {c['start_price']} → {c['end_price']} "
+                    f"(range {c['low']}–{c['high']}).")
+        movers = facts.get("movers", [])             # market-wide
+        if not movers:
+            return f"No instruments had enough quotes to measure a {facts.get('days')}d move."
+        head = "; ".join(f"{m['instrument']} {m['change_pct']:+}%" for m in movers[:5])
+        return f"Biggest movers over {facts['days']}d: {head}."
     return "I can answer: " + ", ".join(facts.get("capabilities", []))
 
 

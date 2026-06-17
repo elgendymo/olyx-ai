@@ -51,6 +51,17 @@ def _clear_cache():
     # generic "tell me about" -> price board (freshness is the catch-all)
     ("tell me about POME", "freshness"),
     ("show me the board", "freshness"),
+    # history / timeframe (the assignment's own example)
+    ("what happened to UCO this week?", "history"),
+    ("how much has UCO moved this month?", "history"),
+    ("biggest movers over the last week?", "history"),
+    # data quality / guard
+    ("any fat-finger prices rejected?", "data_quality"),
+    ("which broker is unreliable?", "data_quality"),
+    ("is the UCO price suspect?", "data_quality"),
+    ("did the circuit breaker fire today?", "data_quality"),
+    # count phrasings -> aggregate feed_age, not a price list
+    ("how many instruments are stale?", "freshness"),
 ])
 def test_routing_picks_intent(monkeypatch, query, intent):
     monkeypatch.setattr(copilot.llm, "chat", lambda *a, **k: None)
