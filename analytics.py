@@ -90,8 +90,11 @@ def guard(df):
             dropped.append({**dict(zip(GROUP, keys)), "source": row["source"],
                             "price": round(float(row["price"]), 2), "consensus": round(consensus, 2),
                             "volume": float(row["volume"]), "deviation_pct": round(d, 2),
-                            # what a broker would have lost trading the phantom price vs consensus
-                            "saved_capital": round(abs(float(row["price"]) - consensus) * float(row["volume"]), 2),
+                            # what a broker would realistically have lost trading the phantom vs
+                            # consensus — per-tick error capped at the consensus notional (you can't
+                            # lose more than the position; keeps catastrophic fingers from inflating it)
+                            "saved_capital": round(min(abs(float(row["price"]) - consensus), consensus)
+                                                   * float(row["volume"]), 2),
                             "reason": "circuit_breaker"})
             log.warning("guard DROP source=%s instrument=%s price=%s consensus=%s dev=%.1f%% reason=circuit_breaker",
                         row["source"], keys, round(float(row["price"]), 2), round(consensus, 2), d)
@@ -168,6 +171,38 @@ def vwap(df, window_days=None):
         v = round(float((g["price"] * g["volume"]).sum() / tv), 2) if tv > 0 else np.nan
         rows.append({**dict(zip(GROUP, keys)), "vwap": v, "total_volume": tv, "n": int(len(g))})
     return pd.DataFrame(rows, columns=cols)
+
+
+def price_change(df, product, days, now=None):
+    """Backward-looking change for ONE product over the last `days` — answers "what happened to UCO
+    this week?". Compares the earliest in-window price to the latest, for the most-traded
+    unit/currency group (deterministic pick), with window high/low. Pure; degenerate cases guarded
+    (no data / product unknown / <2 points → a status + human reason, never a fabricated move)."""
+    base = {"status": "no_data", "product_name": product, "days": int(days)}
+    if df is None or df.empty:
+        return {**base, "reason": "no data loaded"}
+    sel = df[df["product_name"] == product]
+    if sel.empty:
+        return {**base, "reason": f"no quotes for {product!r}"}
+    # most-traded unit/currency group, so a thin secondary currency doesn't define the move
+    counts = sel.groupby(["unit", "currency"]).size().reset_index(name="n")
+    counts = counts.sort_values(["n", "unit", "currency"], ascending=[False, True, True])
+    unit, currency = counts.iloc[0]["unit"], counts.iloc[0]["currency"]
+    sel = sel[(sel["unit"] == unit) & (sel["currency"] == currency)].sort_values("timestamp")
+    now = now if now is not None else feed_now(df)
+    win = sel[sel["timestamp"] >= now - pd.Timedelta(days=days)]
+    win = win[_inliers(win["price"])]   # drop spike ticks so a fat-finger can't define the move/range
+    if len(win) < 2:
+        return {"status": "insufficient_data", "product_name": product, "unit": unit,
+                "currency": currency, "days": int(days), "n": int(len(win)),
+                "reason": f"only {len(win)} quote(s) in the last {days}d for this instrument"}
+    start, end = float(win.iloc[0]["price"]), float(win.iloc[-1]["price"])
+    chg = (end - start) / start if start else 0.0
+    return {"status": "ok", "product_name": product, "unit": unit, "currency": currency,
+            "days": int(days), "start_price": round(start, 2), "end_price": round(end, 2),
+            "change_pct": round(chg * 100, 2), "direction": "up" if chg > 0 else "down" if chg < 0 else "flat",
+            "high": round(float(win["price"].max()), 2), "low": round(float(win["price"].min()), 2),
+            "n": int(len(win))}
 
 
 def dislocations(df, window_days=None):
