@@ -523,3 +523,31 @@ Neither bug was found by the unit suite — both needed **real dirty data**. Wor
 
 **Takeaway:** clean-room tests prove the math; only real-feed inspection + an end-to-end run prove the
 behaviour. Both bugs hid behind a green test suite.
+
+## Phase 6e — Full copilot intent coverage ("become Jasper")
+
+Goal: any dashboard term Jasper asks about routes to the right data. Two new intents + broadened
+keywords, then a live question battery against the real cache to find what breaks.
+
+- **`history`** (backward-looking, the assignment's "what happened to UCO this week?"): new pure
+  `analytics.price_change(df, product, days)` — start→end change %, window high/low, direction, over a
+  parsed timeframe (today/week/month/quarter/year). No product → ranks the market's biggest movers.
+- **`data_quality`** (the guard, now queryable): "any fat-fingers?", "which broker is unreliable?",
+  "is X suspect?", "can I trust this?" → rejected count, suspect count, capital blocked, source
+  leaderboard. Product-named queries scope every number to that instrument.
+- **Keywords** broadened across all intents (signal/indicator, momentum/buy-sell-timing, typical-price,
+  tell-me-about) with the catch-all `freshness` kept LAST so generic phrasings never hijack a sharper
+  intent. "how many stale?" now hits the aggregate `feed_age` count, not a price list.
+
+**Bugs found by the live "become Jasper" battery (not by tests):**
+1. `price_change` window high/low was polluted by fat-fingers (UCO range showed `1267370`) → apply
+   `_inliers` MAD filter inside the window (robust to spikes at any age, unlike recent-only `guard`).
+2. **"any outliers?" always returned nothing** — the z-score sub-filter checked `type=="zscore_spike"`
+   but `dislocations()` emits `"zscore"`. Long-standing typo; outlier queries were silently dead.
+3. Product-specific data-quality ("is Tallow suspect?") reported whole-market numbers → scope dropped
+   ticks + suspect counts to the named product.
+4. `bad_capital_blocked` hit ~855M from a 2.6M phantom tick (dishonest) → cap per-tick error at the
+   consensus notional (you can't lose more than the position).
+
+**Verified:** 105 tests pass (+8 routing); live battery of 12 Jasper questions all route correctly and
+return honest numbers.
