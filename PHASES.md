@@ -551,3 +551,29 @@ keywords, then a live question battery against the real cache to find what break
 
 **Verified:** 105 tests pass (+8 routing); live battery of 12 Jasper questions all route correctly and
 return honest numbers.
+
+## Phase 6f — Autonomous "become Jasper" loop (10 rounds vs live data)
+
+Fired ~120 broker questions at the real cache over 10 rounds, fixing every misroute/wrong-number until
+a full round found nothing. Bugs caught (all by live behaviour, none by the unit suite):
+
+- **`"cross"` matched "a*cross*"** → "highest price across products" routed to dislocations. Switched
+  to hyphenated/spaced `cross-market`/`cross-source`.
+- **Product code matched inside words** — `"rme"` in "perfo**rme**r" → "worst performer" returned RME;
+  `"uco"` would match "UCOME". `_find_product` Pass 1 is now **word-bounded** (`\bcode\b`).
+- **Acronym suffixes unresolved** — "eua?"/"saf?"/"thg?"/"ttf?" (3-char, <4-char Pass-2 floor) found
+  nothing; added a small alias whitelist (can't blanket-acronym-match — "CAN" would hijack "**can** I…").
+- **Stale list showed FRESH** — "show me everything stale" needed exact phrases; now any
+  stale/outdated/lagging mention filters to stale; added an oldest/stalest age sort.
+- **"any outliers?" was silently dead** — z-score sub-filter checked `zscore_spike`; analytics emits
+  `zscore`.
+- **Data-quality trust hazard** — LLM narrated a *rejected* fat-finger as the live price ("Carbon EUA
+  is 87,250, suspect"); data_quality is now always deterministic and product-scoped.
+- **No direction in movers** — "biggest gainer" showed losers; added gainer/loser/winner sorting.
+
+New capabilities added to hit ~all dashboard vocabulary: **overview** ("market summary", "what's the
+market doing?", "anything I should worry about?"), **history** (timeframe change + movers/volatility),
+**data_quality** (rejected/suspect/reputation/trust), **vwap_compare** (above/below VWAP = the ▲/▼
+signal), and count phrasings → aggregate feed_age.
+
+**Verified:** 117 tests pass (+12); rounds 8–10 of the live battery returned zero misroutes.
