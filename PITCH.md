@@ -40,6 +40,17 @@ money behind.
    week" wrongly returned RME's data. Caught the same way — real phrasings on live data — and fixed
    with word-boundary matching (`\brme\b`).
 
-Both have the full forensic trail in `PHASES.md` (Phases 6e–6f), along with the two feed-reality bugs
-the dashboard surfaced about *itself*: a future-dated tick made 56/60 lines look stale, and a 20%
-circuit breaker was eating real 20–30% dislocations (the actual opportunities).
+Both forensic trails — plus the two feed-reality bugs the dashboard surfaced about *itself* (a
+future-dated tick made 56/60 lines look stale, and a 20% circuit breaker was eating real 20–30%
+dislocations, i.e. the actual opportunities) — are documented in the build log.
+
+**Time spent (≈ 6.1 h, at the 6-hour cap)** — first code edit **16 Jun 2026 14:56**, last code edit
+**17 Jun 2026 11:37**:
+
+| | |
+|---|---|
+| Building — code edits + the design that drove them | 5.56 h |
+| Analysis — Read/Grep | 0.06 h |
+| Testing — Bash/pytest | 0.39 h |
+| This pitch | 0.04 h |
+| **Total (est.)** | **≈ 6.1 h** |
