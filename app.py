@@ -219,9 +219,9 @@ _period, _orb_cls, _phrase = (
 )
 _now_str = _dt.datetime.now().strftime("%a %d %b · %H:%M")
 st.markdown(f"""
-<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:.6rem">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;padding-top:.8rem;margin-bottom:.6rem;overflow:visible">
   <div>
-    <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.25rem">
+    <div style="display:flex;align-items:center;gap:.55rem;margin-bottom:.3rem;line-height:1">
       <span class="greeting-orb {_orb_cls}"></span>
       <span style="font-size:.75rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
         color:#67e8f9;font-family:var(--mono)">{_period}</span>
@@ -279,7 +279,7 @@ c[2].metric("Stale", n_stale)
 
 # ── HERO: needs attention now ───────────────────────────────────────
 with st.container(border=True):
-    st.markdown("##### 🎯 NEEDS ATTENTION NOW")
+    st.markdown("##### 🎯 TRADE OPPORTUNITIES")
     st.caption("Tradeable dislocations (volume-gated). The opportunity queue — what to act on first.")
     trd = dis[dis["tradeable"]] if not dis.empty else dis
     if trd.empty:
@@ -296,7 +296,7 @@ with st.container(border=True):
 
 # ── Pulse (full width) ──────────────────────────────────────────────
 with st.container(border=True):
-    st.markdown("##### 📈 PULSE")
+    st.markdown("##### 📈 LIVE PRICE BOARD")
     st.caption("Latest per instrument · age behind feed · ▲/▼ vs VWAP.")
     board = lat.merge(vw[["product_name", "unit", "currency", "vwap"]],
                       on=["product_name", "unit", "currency"], how="left").sort_values("freshness_sec")
@@ -311,14 +311,13 @@ with st.container(border=True):
                 subset=["vs VWAP"])
            .map(lambda v: "color:#fbbf24;font-weight:700" if v else "", subset=["⚠"])
            .format({"last_price": "{:,.2f}"}))
-    # height fits every row (35px/row + header) so fullscreen shows the whole board, capped so the
-    # inline view stays scannable; Streamlit keeps its own scroll above the cap.
-    _h = min(len(disp) * 35 + 38, 1200)
-    st.dataframe(sty, width="stretch", hide_index=True, height=_h)
+    # No explicit height: inline stays compact (default ~10 rows, scrollable) and the native
+    # fullscreen ("open in full screen") expands to the whole viewport.
+    st.dataframe(sty, width="stretch", hide_index=True)
 
 # ── Forward curve (full width) ──────────────────────────────────────
 with st.container(border=True):
-    st.markdown("##### 🔮 FORWARD CURVE")
+    st.markdown("##### 📉 FORWARD CURVE & SELL TIMING")
     opts = {f"{r['product_name']} · {r['unit']} · {r['currency']}":
             (r["product_name"], r["unit"], r["currency"]) for r in lat.to_dict("records")}
     pick = st.selectbox("Instrument", list(opts), label_visibility="collapsed")
@@ -367,9 +366,9 @@ MOCK_EMAILS = [
 _SENT_CLS = {"Bullish": "bull", "Bearish": "bear", "Neutral": "neut"}
 
 with st.container(border=True):
-    head = st.columns([4, 1])
+    head = st.columns([3, 2])
     head[0].markdown("##### 📨 INBOX · 6 unread")
-    digest = head[1].button("🧠 AI digest")
+    digest = head[1].button("🧠 Summarize unread emails")
     st.caption("Client & counterparty mail. Asset is locked from the text (gazetteer); the chip is "
                "the deterministic keyword signal.")
     for who, t, subj, body in MOCK_EMAILS:
@@ -401,8 +400,8 @@ with st.expander("🧪 Validation mode — prove the guard works (fault injectio
              (r["product_name"], r["unit"], r["currency"]) for r in lat.to_dict("records")}
     cc = st.columns([3, 2, 2])
     pick2 = cc[0].selectbox("Instrument", list(opts2), key="chaos_inst")
-    spike = cc[1].slider("Fault size", -0.40, 0.40, 0.25, 0.01,
-                         help="±25% → trips the circuit breaker; ±4% → kept as a real dislocation")
+    spike = cc[1].slider("Fault size", -1.0, 1.0, 0.6, 0.05,
+                         help="±50%+ → trips the circuit breaker (fat-finger); smaller → kept as a real dislocation")
     vol = cc[2].number_input("Volume (MT)", 1, 100000, 500)
     pname, punit, pcur = opts2[pick2]
     chaos = analytics.inject_fault(dff, pname, punit, pcur, spike, volume=vol)
