@@ -607,3 +607,35 @@ than HTML sanitization for fields that should never contain markup.
 
 **Verified:** 123 tests pass (+5 security: control-char/null strip, length cap, injection-escaped-at-
 render, record-count cap, oversized-line skip); e2e clean; validate 48k rows in 0.05s.
+
+## Future work — deliberately out of scope now, likely important later
+
+Captured so the decisions are explicit and reviewable, not forgotten. None are built; each has a clear
+trigger for when it becomes worth doing.
+
+1. **Streaming JSON ingestion (`ijson`).** Today `_parse_stream` loads all records into a list
+   (~10 MB at 50k) before handing them to pandas, now hard-capped at 200k records. `ijson` would parse
+   the byte stream incrementally — peak memory ≈ one record, not all — and natively handle a giant
+   non-newline-delimited `{"prices":[...]}` object (which we currently special-case with a buffer).
+   **Out of scope:** unnecessary at 10 MB; adds a dependency and complexity (YAGNI).
+   **Trigger:** `max_records` raised into the millions, or the feed grows to hundreds of MB.
+
+2. **Web search as an LLM tool.** Give the copilot LLM a web-search tool (function/tool-calling) so it
+   can fetch external context on demand — news, regulatory changes, freight/feedstock signals,
+   counterparty info — and fuse it with the in-feed numbers ("UCO tight in ARA this week, and our feed
+   shows a 4% dislocation"). The model decides when to search; results come back as grounded snippets.
+   **Out of scope:** the take-home is scoped to the provided feed, and the local-first default
+   (Ollama) has no built-in search; bolting on search adds a trust/grounding surface (must cite +
+   verify sources, handle rate limits and cost) that needs its own design and a provider with tool use
+   (e.g. Anthropic/OpenAI tool-calling + a search API).
+   **Trigger:** once the desk wants market *context*, not just price math, in one place — and we're on
+   a provider whose LLM supports tool calls.
+
+3. **Unified data — connect the dashboard to other company sources.** So Jasper stops dealing with
+   fragmented data and constant context-switching: wire in the desk's other systems (CRM/counterparty
+   book, deal/position history, internal chat, email, ERP/limits) behind the same copilot and board,
+   one pane of glass.
+   **Out of scope:** no access to those systems in the take-home; each is a separate integration with
+   its own auth, schema, and freshness model.
+   **Trigger:** production deployment inside OLYX, where those sources exist and the integration cost
+   pays back in saved context-switching.
