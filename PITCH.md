@@ -56,13 +56,35 @@ Both forensic trails — plus the two feed-reality bugs the dashboard surfaced a
 future-dated tick made 56/60 lines look stale, and a 20% circuit breaker was eating real 20–30%
 dislocations, i.e. the actual opportunities) — are documented in the build log.
 
-**Time spent (≈ 6.1 h, at the 6-hour cap)** — first edit **16 Jun 2026 14:56**, last edit
-**17 Jun 2026 12:21**:
+## How it earns trust — the engineering choices behind every number
+- **Deterministic first, LLM second.** Every figure is computed in pure, tested Python; the LLM only
+  *narrates* it — number-grounded against the facts and banned from directional words — so a decision
+  rests on facts, never on an LLM hallucination or an unverified tick. Highest data integrity is the
+  point, not fluent prose.
+- **The ingestion layer is the front door — so it's hardened.** The third-party feed is untrusted:
+  bounded streaming (record/byte/line caps — DoS & decompression-bomb guard), sanitised strings, and
+  HTML-escaped output, on top of retry/backoff fail-silent fetching. Bad data is the threat we own.
+- **Property-based testing (Hypothesis).** The pure `validate`/analytics layer is fuzzed with
+  generated inputs, not just hand-picked cases — that's how the idempotency and empty-frame dtype
+  edge cases were found before they could reach Jasper.
+- **Live feedback-loop testing.** Beyond the unit suite, I ran rounds of real broker questions against
+  the *live* feed — fixing wrong answers, bad data, and bugs the green unit tests never exposed (the
+  two above among them).
+
+## Build invoice
 
 | | |
 |---|---|
-| Building — code edits + the design that drove them | 5.56 h |
-| Analysis — Read/Grep | 0.06 h |
-| Testing — Bash/pytest | 0.39 h |
-| This pitch | 0.04 h |
-| **Total (est.)** | **≈ 6.1 h** |
+| **Billed to** | Jasper — OLYX biofuel desk |
+| **Project** | Magic Spyglass |
+| **Period** | 16 Jun 2026 14:56 → 17 Jun 2026 12:21 |
+
+| # | Line item | Hours |
+|--:|---|--:|
+| 1 | Building — code edits + the design that drove them | 5.56 |
+| 2 | Analysis — Read/Grep | 0.06 |
+| 3 | Testing — Bash/pytest | 0.39 |
+| 4 | This pitch | 0.04 |
+| | **Total (estimate)** | **≈ 6.1** |
+
+*Total build ≈ 6.1 h — at the 6-hour cap.*
