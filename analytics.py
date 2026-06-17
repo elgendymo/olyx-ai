@@ -9,10 +9,14 @@ No I/O, no LLM, no wall clock. Every function:
   - rounds outputs at the boundary so two identical runs are byte-identical (determinism;
     float64 vectorized math internally, fixed-dp on the way out).
 """
+import logging
+
 import numpy as np
 import pandas as pd
 
 from config import CONFIG
+
+log = logging.getLogger("analytics")
 
 GROUP = ["product_name", "unit", "currency"]
 
@@ -40,17 +44,102 @@ def _inliers(prices):
     return (prices - med).abs() <= CONFIG.mad_k * 1.4826 * mad   # 1.4826 -> MAD ≈ std
 
 
+def _recent_per_source(df, now=None):
+    """Latest price per source per instrument, within the contemporaneous window — the only
+    quotes fresh enough to be 'consensus' for each other (not stale-vs-fresh drift, C-disagree)."""
+    now = now if now is not None else feed_now(df)
+    cut = now - pd.Timedelta(hours=CONFIG.disagreement_window_hours)
+    recent = df[df["timestamp"] >= cut]
+    return recent
+
+
+def guard(df):
+    """Cross-source defense-in-depth (Story 1 + 4). Drops RECENT fat-finger ticks whose price is
+    >CONFIG.circuit_breaker_pct off the contemporaneous PEER CONSENSUS (median of each source's
+    latest), and logs every drop WITH the originating source for vendor-quality tracking.
+
+    Only recent quotes are judged — historical prices legitimately differ from today's consensus,
+    so the breaker never touches them (keeps trending products intact). Needs ≥2 live sources per
+    instrument; a lone source has nothing to be cross-checked against and passes through untouched.
+    Returns (clean_df, dropped) — dropped is the source-attributed kill log."""
+    if df is None or df.empty:
+        return df, []
+    recent = _recent_per_source(df)
+    drop_idx, dropped = [], []
+    for keys, g in recent.groupby(GROUP):
+        per_src = g.sort_values("timestamp").groupby("source").last()["price"].astype(float)
+        if per_src.size < 2:
+            continue
+        consensus = float(per_src.median())
+        if consensus <= 0:
+            continue
+        dev = (g["price"].astype(float) / consensus - 1.0).abs()
+        bad = g[dev > CONFIG.circuit_breaker_pct]
+        for idx, row in bad.iterrows():
+            drop_idx.append(idx)
+            d = (abs(float(row["price"]) / consensus - 1.0)) * 100
+            dropped.append({**dict(zip(GROUP, keys)), "source": row["source"],
+                            "price": round(float(row["price"]), 2), "consensus": round(consensus, 2),
+                            "volume": float(row["volume"]), "deviation_pct": round(d, 2),
+                            # what a broker would have lost trading the phantom price vs consensus
+                            "saved_capital": round(abs(float(row["price"]) - consensus) * float(row["volume"]), 2),
+                            "reason": "circuit_breaker"})
+            log.warning("guard DROP source=%s instrument=%s price=%s consensus=%s dev=%.1f%% reason=circuit_breaker",
+                        row["source"], keys, round(float(row["price"]), 2), round(consensus, 2), d)
+    clean = df.drop(index=drop_idx) if drop_idx else df
+    return clean, dropped
+
+
+def inject_fault(df, product, unit, currency, pct, source="chaos_inject", volume=100.0):
+    """Append ONE synthetic tick `pct` off the instrument's latest, from a tagged source — the
+    chaos-engineering seam for proving the defenses react (25% spike vs 4% drift). Pure, no I/O."""
+    if df is None or df.empty:
+        return df
+    sel = df[(df["product_name"] == product) & (df["unit"] == unit) & (df["currency"] == currency)]
+    if sel.empty:
+        return df
+    base = float(sel.sort_values("timestamp").iloc[-1]["price"])
+    new = {"id": "chaos", "product_id": "chaos", "product_name": product, "source": source,
+           "price": round(base * (1 + pct), 2), "currency": currency, "unit": unit,
+           "timestamp": feed_now(df), "volume": float(volume)}
+    return pd.concat([df, pd.DataFrame([new])], ignore_index=True)
+
+
+def _suspect_keys(df):
+    """GROUP keys whose newest displayed tick is a cross-source MAD outlier vs its contemporaneous
+    peers (Story 2 'flag, don't drop'). Survived the circuit breaker but still distrust-worthy."""
+    if df is None or df.empty:
+        return set()
+    recent = _recent_per_source(df)
+    out = set()
+    for keys, g in recent.groupby(GROUP):
+        g = g.sort_values("timestamp")
+        per_src = g.groupby("source").last()["price"].astype(float)
+        if per_src.size < 2:
+            continue
+        newest_src = g.iloc[-1]["source"]
+        inl = _inliers(per_src)
+        if newest_src in inl.index and not bool(inl.loc[newest_src]):
+            out.add(keys)
+    return out
+
+
 def latest_with_freshness(df):
-    """Latest quote per instrument + seconds behind the newest packet (REQ-MP-03)."""
-    cols = GROUP + ["last_price", "source", "timestamp", "volume", "freshness_sec", "is_stale"]
+    """Latest quote per instrument + seconds behind the newest packet (REQ-MP-03).
+
+    `suspect` (Story 2/3): the displayed price is a cross-source MAD outlier — shown, but flagged
+    so Jasper never trades a distrusted tick blind. Gross fat-fingers are already gone (see guard)."""
+    cols = GROUP + ["last_price", "source", "timestamp", "volume", "freshness_sec", "is_stale", "suspect"]
     if df is None or df.empty:
         return pd.DataFrame(columns=cols)
     now = feed_now(df)
+    susp = _suspect_keys(df)
     g = df.sort_values("timestamp").groupby(GROUP, as_index=False).last()
     g = g.rename(columns={"price": "last_price"})
     g["freshness_sec"] = (now - g["timestamp"]).dt.total_seconds().round(1)
     g["is_stale"] = g["freshness_sec"] > CONFIG.stale_after
     g["last_price"] = g["last_price"].round(2)
+    g["suspect"] = [tuple(r) in susp for r in g[GROUP].itertuples(index=False, name=None)]
     return g[cols].sort_values("freshness_sec").reset_index(drop=True)
 
 
