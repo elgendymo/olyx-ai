@@ -47,6 +47,9 @@ ENVELOPE_KEYS = ("prices", "data", "records", "items", "results")
 
 CACHE_FILE = Path("cache/bulk.parquet")   # tests monkeypatch this
 
+# Control chars (C0 + DEL + C1) — stripped from every untrusted string field in validate().
+_CONTROL_CHARS = r"[\x00-\x1f\x7f-\x9f]"
+
 # Module-level session so tests can inject a fake transport.
 _SESSION = requests.Session()
 
@@ -107,8 +110,13 @@ def validate(df):
     vol = pd.to_numeric(df["volume"], errors="coerce")
     df["volume"] = vol.where((vol >= 0) & (vol <= CONFIG.volume_max), 0.0).fillna(0.0)
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
+    # Untrusted strings: strip control/null chars (C0 range incl. \x00, plus DEL) and hard-cap
+    # length BEFORE anything stores or renders them. This is the single sanitization chokepoint —
+    # neutralizes injection payloads and 10MB-string DoS at the one place all feed data passes.
     for c in ["id", "product_id", "product_name", "source", "currency", "unit"]:
-        df[c] = df[c].astype("string").str.strip()
+        df[c] = (df[c].astype("string").str.strip()
+                 .str.replace(_CONTROL_CHARS, "", regex=True)
+                 .str.slice(0, CONFIG.max_str_len))
     # keep grouping/label fields visible — a NaN key would be silently dropped by groupby (C4)
     df["unit"] = df["unit"].replace("", pd.NA).fillna("UNKNOWN")
     df["currency"] = df["currency"].replace("", pd.NA).fillna("UNKNOWN")
@@ -135,8 +143,18 @@ def _parse_stream(resp):
     record dict is kept as-is; un-parseable lines are accumulated and parsed once at the end.
     """
     records, buf = [], []
+    total_bytes, buf_bytes = 0, 0
     for raw in resp.iter_lines(decode_unicode=True):
         if not raw:
+            continue
+        # DoS bounds (untrusted feed): cap total bytes, per-line size, and record count so a
+        # hostile/huge/gzip-bomb stream can't exhaust memory. Stop/skip loudly, never silently.
+        total_bytes += len(raw)
+        if total_bytes > CONFIG.max_stream_bytes:
+            log.warning("bulk stream exceeded %d bytes — truncating ingestion", CONFIG.max_stream_bytes)
+            break
+        if len(raw) > CONFIG.max_line_bytes:
+            log.warning("skipping oversized line (%d bytes > %d)", len(raw), CONFIG.max_line_bytes)
             continue
         line = raw.strip()
         if not line:
@@ -144,20 +162,25 @@ def _parse_stream(resp):
         try:
             obj = json.loads(line)
         except json.JSONDecodeError:
-            buf.append(line)        # not line-delimited yet — accumulate, parse below
+            buf_bytes += len(line)
+            if buf_bytes <= CONFIG.max_stream_bytes:
+                buf.append(line)    # not line-delimited yet — accumulate (bounded), parse below
             continue
         recs = _records(obj)
         if recs:
             records.extend(recs)
         elif isinstance(obj, dict):
             records.append(obj)     # a bare record (no envelope list)
+        if len(records) >= CONFIG.max_records:
+            log.warning("bulk stream hit %d-record cap — truncating ingestion", CONFIG.max_records)
+            break
     if not records and buf:
         try:
             records = _records(json.loads("".join(buf)))
         except json.JSONDecodeError:
             return []
-    # ponytail: assembles all records in memory (~10MB for 50k); swap to ijson only if OOM.
-    return records
+    # ponytail: assembles all records in memory (~10MB for 50k), now hard-capped; swap to ijson if needed.
+    return records[:CONFIG.max_records]
 
 
 # ── cache (doubles as last-good, 3A) ───────────────────────────────

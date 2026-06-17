@@ -24,6 +24,12 @@ class Config:
     price_max: float = 1e9              # reject absurd prices (overflow guard; nautilus PRICE_MAX idea)
     volume_max: float = 1e7             # reject absurd volumes (weight overflow guard)
 
+    # ── ingestion hardening (the feed is untrusted third-party data) ──
+    max_records: int = 200_000          # stop reading the stream past this (≈4× the ~50k expected)
+    max_stream_bytes: int = 200_000_000 # 200MB decoded cap — DoS / decompression-bomb guard
+    max_line_bytes: int = 2_000_000     # skip any single NDJSON line larger than this (2MB)
+    max_str_len: int = 256              # truncate string fields (id/name/source/unit/currency)
+
     # ── analytics (used Phase 3) ──
     dislocation_pct: float = 0.02       # source-disagreement band (2%)
     disagreement_window_hours: float = 48.0  # only compare CONTEMPORANEOUS source quotes (not drift)
