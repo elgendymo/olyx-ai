@@ -8,18 +8,30 @@ certificates (THG-Quoten, EREs) — and answers "is now a good time to sell?" wi
 Wrong data loses deals, so this tool optimizes for **data integrity and ingestion resilience over
 visual polish** — corrupted/half-computed numbers never reach the screen.
 
-## What it does
-- **Market pulse** — latest price per instrument, freshness vs the feed clock, ▲/▼ vs VWAP.
-- **Opportunity queue** — volume-gated, ranked dislocations (source disagreement + z-score).
-- **Forward curve** — "is now a good time to sell?" with a projected trend per instrument.
-- **Broker copilot** — plain-language Q&A, deterministic-compute → LLM-narrate with citations.
-- **Source scope** — filter every panel to one or more market sources (e.g. just `broker_quote`).
-- **Cross-source guard** — a circuit breaker drops fat-finger ticks (>20% off contemporaneous
-  peer consensus) and flags ⚠ statistical outliers, so a broken tick never reaches the board.
-- **Validation mode** — fault-injection + RAW-vs-GUARDED A/B, saved-capital, source leaderboard.
+## What it does (top-to-bottom, as the dashboard lays it out)
+- **Market sources** — scope every panel below to one or more sources (e.g. just `broker_quote`).
+- **Header metrics + banners** — instruments tracked · newest packet · stale count, with a loud
+  **STALE** banner and a 🛡 fat-finger **rejection** banner.
+- **🎯 Trade Opportunities** — the hero: volume-gated, ranked dislocations to act on first
+  (source disagreement + z-score), tradeable-first.
+- **📈 Live Price Board** — latest price per instrument, age vs the feed clock, ▲/▼ vs VWAP,
+  ⚠ suspect flag.
+- **📉 Forward Curve & Sell Timing** — "is now a good time to sell?" projected trend + a
+  deterministic SELL/HOLD verdict per instrument.
+- **📨 Inbox** — client/counterparty mail with per-email asset + sentiment chips and a one-click
+  **Summarize unread emails** AI digest.
+- **🧪 Validation mode** — fault-injection + RAW-vs-GUARDED A/B, saved-capital, source-reputation
+  leaderboard.
+- **🔭 Copilot (sidebar)** — plain-language Q&A ("what happened to UCO this week?"),
+  deterministic-compute → LLM-narrate, with a verifiable facts receipt beside every answer.
+
+**Cross-source guard (under the hood):** a circuit breaker auto-drops catastrophic fat-finger ticks
+(>50% off contemporaneous peer consensus) and flags ⚠ statistical outliers, so a broken tick never
+reaches the board.
 
 ## Stack
-Streamlit + pandas/numpy + plotly, Anthropic SDK for the copilot. Single-user, no DB.
+Streamlit + pandas/numpy + plotly; copilot on a local-first LLM via Ollama (swappable to
+Anthropic/OpenAI by env). Single-user, no DB.
 
 ## Run
 ```bash
