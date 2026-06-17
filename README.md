@@ -73,4 +73,5 @@ model `qwen2.5:7b`), `OLYX_LLM_MODEL=…`, `OLLAMA_HOST=…`. Cloud providers re
 - `copilot.py` — deterministic-compute → LLM-narrate-with-citations; inbox summarizer
 - `app.py` — Streamlit dark-card dashboard
 
-See `PHASES.md` for the build log and `PITCH.md` for the pitch/cut/truth.
+See `ARCHITECTURE.md` for the data-flow / trust-gate / copilot diagrams, `PHASES.md` for the build
+log, and `PITCH.md` for the pitch/cut/truth.
