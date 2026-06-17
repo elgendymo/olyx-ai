@@ -36,13 +36,28 @@ _INTENTS = [
         "bad tick", "bad data", "bad price", "wrong price", "fake price", "phantom",
         "circuit breaker", "breaker", "guard", "dropped tick", "filtered out",
         "suspect", "suspicious", "dodgy", "dirty data", "corrupt", "erroneous", "garbage",
-        "can i trust", "trustworthy", "reliable", "unreliable", "reputation",
+        "can i trust", "trust", "trustworthy", "reliable", "unreliable", "reputation",
         "which source", "which broker", "bad source", "source quality", "vendor quality",
         "worst source", "saved capital", "capital blocked", "bad capital", "blocked",
     )),
 
+    # ── Market overview / summary (one-glance state of the desk) ──
+    # Covers: "market summary", "what's the market doing?", "anything I should worry about?",
+    # "brief me", "what's new today?", "big picture", "tldr", "catch me up"
+    ("overview", (
+        "market summary", "summary of the market", "overview", "market doing",
+        "state of the market", "what's the market", "whats the market", "what's going on",
+        "whats going on", "what's new", "whats new", "what is new", "brief me", "briefing",
+        "catch me up", "big picture", "rundown", "run down", "tldr", "at a glance",
+        "anything i should", "anything to worry", "should i worry", "what should i know",
+        "what's happening", "whats happening", "give me the market", "how's the market",
+        "hows the market", "market update",
+    )),
+
     # ── History / timeframe change (backward-looking: "what happened to UCO this week?") ──
     ("history", (
+        # volatility is answered as "biggest movers" (a change-magnitude proxy)
+        "volatile", "volatility", "swings", "swingy", "choppy", "biggest swings",
         "what happened", "what's happened", "whats happened", "happened to", "happened with",
         "this week", "last week", "past week", "this month", "last month", "past month",
         "this quarter", "past quarter", "year to date", "ytd", "lately", "recently moved",
@@ -50,6 +65,8 @@ _INTENTS = [
         " ago", "compared to", "vs last", "over the last", "over the past",
         "how much has", "how much did", "how far has", "moved", "movement", "performance",
         "how did", "gain", "loss", "gained", "lost", "rose", "fell", "dropped by", "up or down",
+        "gainer", "gainers", "loser", "losers", "winner", "winners", "mover", "movers",
+        "top mover", "best performer", "worst performer", "outperform", "underperformer",
     )),
 
     # ── Pricing dislocations / arbitrage ────────────────────────────
@@ -60,8 +77,9 @@ _INTENTS = [
         "arb", "arbitrage", "any arb", "trade on", "exploit",
         "spread", "basis", "basis risk", "calendar spread", "inter-market",
         "tight", "loose", "widening", "narrowing", "compression",
-        # source conflict
-        "source conflict", "cross", "mismatch", "diverge", "divergence",
+        # source conflict ("cross" alone matched "aCROSS" — use hyphenated/spaced forms)
+        "source conflict", "cross-market", "cross market", "cross-source", "mismatch",
+        "diverge", "divergence",
         # z-score / outlier
         "outlier", "spike", "anomal", "z-score", "sigma", "deviation", "abnormal",
         # opportunity queue
@@ -72,6 +90,7 @@ _INTENTS = [
         "wheres the money", "stand out", "stands out", "standout", "red flag",
         "unusual", "weird", "strange", "off the mark", "out of line", "act on",
         "worth trading", "worth a look", "what should i trade", "what to trade",
+        "tradeable", "tradable", "anything to trade", "to trade", "any trades",
     )),
 
     # ── Forward curve / timing ───────────────────────────────────────
@@ -134,6 +153,8 @@ _INTENTS = [
         # data quality
         "data", "feed", "update", "old", "age", "behind", "delay",
         "how old", "when was", "last seen",
+        # counts / inventory ("how many products do we track?", "how many instruments?")
+        "how many", "track", "tracked", "instruments", "products", "lines", "how many do we",
         # compliance products often asked by price
         "thg", "ere", "certificate", "credit",
         # generic "tell me about X" phrasings (safe here: freshness is the LAST intent, so
@@ -176,11 +197,23 @@ _DIRECTIONAL = re.compile(
 _VERDICT_LABEL = {"downtrend": "SELL SIGNAL", "uptrend": "HOLD SIGNAL", "flat": "NEUTRAL"}
 
 
+# Broker shorthands that are <4-char acronym SUFFIXES of multiword names (so Pass 2's ≥4-char rule
+# misses them) — and can't be blanket-acronym-matched ("CAN" would hijack "can I trust…").
+_ALIASES = {"eua": "Carbon EUA", "thg": "Biomethane THG quota", "ttf": "TTF Biomethane premium",
+            "saf": "SAF HEFA", "hefa": "SAF HEFA"}
+
+
 def _find_product(query, df):
     q = query.lower()
-    # Pass 1: exact full-name match (highest confidence)
+    names = set(df["product_name"].dropna().unique())
+    # Pass 0: explicit shorthand aliases, matched as whole words ("eua?" -> Carbon EUA)
+    for alias, target in _ALIASES.items():
+        if target in names and re.search(rf"\b{alias}\b", q):
+            return target
+    # Pass 1: exact full-name match (highest confidence), WORD-BOUNDED so a short code like "RME"
+    # doesn't match inside "perfoRMEr" and "UCO" doesn't match "UCOME".
     for p in df["product_name"].unique():
-        if p and p.lower() in q:
+        if p and re.search(rf"\b{re.escape(p.lower())}\b", q):
             return p
     # Pass 2: any significant word (≥4 chars) from the product name appears in the query.
     # Lets "Biomethane" match "Biomethane THG quota", "HEFA" match "SAF HEFA", etc.
@@ -205,6 +238,10 @@ def _single_asset(facts):
     if facts.get("intent") == "forward_curve":
         c = facts.get("curve") or {}
         return c["product_name"] if c.get("status") == "ok" else None
+    # data_quality is ALWAYS deterministic: its "items" are REJECTED ticks; letting the LLM narrate
+    # one risks presenting a killed fat-finger as the live price ("Carbon EUA is 87,250, suspect").
+    if facts.get("intent") == "data_quality":
+        return None
     rows = facts.get("instruments") or facts.get("items") or []
     names = {r.get("instrument") for r in rows}
     return next(iter(names)) if len(names) == 1 else None
@@ -223,6 +260,28 @@ def _route(query, df):
     q = query.lower()
     intent = next((name for name, kws in _INTENTS if any(k in q for k in kws)), "help")
     product = _find_product(query, df)
+
+    if intent == "overview":
+        lat = analytics.latest_with_freshness(df)
+        dis = analytics.dislocations(df)
+        _, dropped = analytics.guard(df)
+        n_total = len(lat)
+        n_stale = int(lat["is_stale"].sum()) if n_total else 0
+        trad = dis[dis["tradeable"]] if not dis.empty else dis
+        top_opps = [{"instrument": r["product_name"], "currency": r["currency"], "type": r["type"],
+                     "spread_pct": round(r["magnitude"] * 100, 2) if r["type"] == "source_disagreement" else None}
+                    for r in (trad.head(3).to_dict("records") if not trad.empty else [])]
+        movers = []
+        for p in df["product_name"].dropna().unique():
+            ch = analytics.price_change(df, p, 7)
+            if ch.get("status") == "ok":
+                movers.append({"instrument": p, "change_pct": ch["change_pct"]})
+        movers.sort(key=lambda m: abs(m["change_pct"]), reverse=True)
+        return intent, {"intent": "overview", "total_instruments": n_total,
+                        "fresh": n_total - n_stale, "stale": n_stale,
+                        "tradeable_opportunities": int(len(trad)) if not dis.empty else 0,
+                        "top_opportunities": top_opps, "top_movers": movers[:3],
+                        "rejected_ticks": len(dropped)}
 
     if intent == "data_quality":
         _, dropped = analytics.guard(df)
@@ -262,7 +321,14 @@ def _route(query, df):
                 movers.append({"instrument": ch["product_name"], "currency": ch["currency"],
                                "change_pct": ch["change_pct"], "direction": ch["direction"],
                                "start_price": ch["start_price"], "end_price": ch["end_price"]})
-        movers.sort(key=lambda m: abs(m["change_pct"]), reverse=True)
+        if any(w in q for w in ("gainer", "gain", "best", "top performer", "rose", "winner",
+                                "up the most", "biggest gain", "rallied")):
+            movers.sort(key=lambda m: m["change_pct"], reverse=True)            # most positive
+        elif any(w in q for w in ("loser", "worst", "fell", "decline", "laggard", "underperform",
+                                  "down the most", "biggest drop", "biggest loss", "dropped most")):
+            movers.sort(key=lambda m: m["change_pct"])                          # most negative
+        else:
+            movers.sort(key=lambda m: abs(m["change_pct"]), reverse=True)       # biggest absolute
         return intent, {"intent": intent, "days": days, "movers": movers[:10]}
 
     if intent == "dislocations":
@@ -271,7 +337,7 @@ def _route(query, df):
         if any(w in q for w in ("z-score", "sigma", "outlier", "spike", "zscore", "statistical")):
             res = res[res["type"] == "zscore"] if not res.empty else res
         # Sub-query: source spread / disagreement only ("source spread", "sources disagree")
-        elif any(w in q for w in ("source", "disagree", "sources", "cross", "inter-source")):
+        elif any(w in q for w in ("source", "disagree", "sources", "cross-source", "inter-source")):
             res = res[res["type"] == "source_disagreement"] if not res.empty else res
         # Sub-query: product-specific ("any arb on UCO?")
         if product and not res.empty:
@@ -322,6 +388,31 @@ def _route(query, df):
         return intent, {"intent": intent, "product": product, "curve": curve}
 
     if intent == "vwap":
+        # Sub-query: above/below VWAP ("is UCO above or below VWAP?", "which are rich vs VWAP?")
+        # — the dashboard's ▲/▼ signal: compare latest price to VWAP per instrument.
+        if any(w in q for w in ("above", "below", "vs vwap", "versus vwap", "compared to vwap",
+                                "over vwap", "under vwap", "premium to", "discount to", "rich vs",
+                                "cheap vs", "rich or cheap")):
+            lat = analytics.latest_with_freshness(df)
+            vwf = analytics.vwap(df)[["product_name", "unit", "currency", "vwap"]]
+            merged = lat.merge(vwf, on=["product_name", "unit", "currency"], how="left")
+            if product:
+                merged = merged[merged["product_name"] == product]
+            items = []
+            for r in merged.to_dict("records"):
+                v = r["vwap"]
+                if v == v:                              # skip NaN-VWAP (zero-volume) groups
+                    items.append({"instrument": r["product_name"], "currency": r["currency"],
+                                  "last_price": r["last_price"], "vwap": round(float(v), 2),
+                                  "position": "above" if r["last_price"] >= v else "below",
+                                  "diff_pct": round((r["last_price"] - v) / v * 100, 2) if v else 0.0})
+            # "which are above/below" → filter to that side (a list query, not a single instrument)
+            if not product and ("above" in q or "over vwap" in q or "premium" in q or "rich" in q):
+                items = [i for i in items if i["position"] == "above"]
+            elif not product and ("below" in q or "under vwap" in q or "discount" in q or "cheap" in q):
+                items = [i for i in items if i["position"] == "below"]
+            items.sort(key=lambda i: i["diff_pct"], reverse=True)
+            return "vwap_compare", {"intent": "vwap_compare", "instruments": items[:20]}
         vw = analytics.vwap(df)
         if product:
             vw = vw[vw["product_name"] == product]
@@ -351,7 +442,8 @@ def _route(query, df):
                        # counts ("how many stale?", "number of stale lines", "how many instruments")
                        "how many stale", "how many fresh", "number of stale", "number of fresh",
                        "count of stale", "count stale", "how many instrument", "how many product",
-                       "how many line", "number of instrument", "total instrument", "how many are stale")
+                       "how many line", "number of instrument", "total instrument", "how many are stale",
+                       "stale count", "fresh count")
         if not product and any(w in q for w in _feed_age_q):
             now_ts = analytics.feed_now(df)
             n_total = len(lat)
@@ -385,11 +477,15 @@ def _route(query, df):
                                 "not stale", "only fresh", "active only")):
             lat = lat[~lat["is_stale"]]
 
-        # Sub-query: stale only ("what's stale?", "stale instruments", "which are stale?")
-        elif any(w in q for w in ("which stale", "what stale", "stale instrument", "stale product",
-                                  "stale data", "stale quote", "show stale", "list stale",
-                                  "still stale", "stale ones", "stale lines")):
+        # Sub-query: stale only — any mention of stale/outdated/lagging (robust to phrasing & typos).
+        # "not stale"/"non-stale" already handled by the fresh-only branch above.
+        elif any(w in q for w in ("stale", "outdated", "out of date", "lagging", "old data",
+                                  "behind the feed", "not updated", "needs update", "updated in",
+                                  "hasnt updated", "haven't updated", "havent updated", "in ages")):
             lat = lat[lat["is_stale"]].sort_values("freshness_sec", ascending=False)
+        # Sub-query: oldest / stalest first (age ranking, not the stale-only filter)
+        elif any(w in q for w in ("oldest", "stalest", "most behind", "most lagged", "longest")):
+            lat = lat.sort_values("freshness_sec", ascending=False)
 
         elif any(w in q for w in ("highest", "most expensive", "maximum", "max price", "biggest price")):
             lat = lat.sort_values("last_price", ascending=False)
@@ -493,6 +589,12 @@ def _facts_to_text(facts):
     if intent == "forward_curve_no_product":
         prods = ", ".join(facts.get("known_products", [])[:10])
         return f"Which instrument? E.g.: {prods}."
+    if intent == "vwap_compare":
+        items = facts["instruments"]
+        if not items:
+            return "No VWAP comparison available (zero-volume or no quotes)."
+        return "; ".join(f"{i['instrument']} ({i['currency']}) {i['last_price']} is {i['position']} "
+                         f"VWAP {i['vwap']} ({i['diff_pct']:+}%)" for i in items[:8])
     if intent == "vwap_volume":
         items = facts["instruments"]
         if not items:
@@ -512,6 +614,14 @@ def _facts_to_text(facts):
             return "No quotes loaded."
         return "; ".join(f"{i['instrument']} {i['price']} {i['currency']} "
                          f"({i['age_minutes']}m old{', STALE' if i['stale'] else ''})" for i in items[:5])
+    if intent == "overview":
+        f = facts
+        opp = "; ".join((f"{o['instrument']} {o['spread_pct']}% spread" if o["spread_pct"] is not None
+                         else f"{o['instrument']} {o['type']}") for o in f["top_opportunities"]) or "none tradeable"
+        mov = "; ".join(f"{m['instrument']} {m['change_pct']:+}%" for m in f["top_movers"]) or "n/a"
+        return (f"Market: {f['fresh']}/{f['total_instruments']} instruments fresh, {f['stale']} stale. "
+                f"{f['tradeable_opportunities']} tradeable opportunity(ies) — top: {opp}. "
+                f"Top movers (7d): {mov}. {f['rejected_ticks']} bad tick(s) auto-rejected.")
     if intent == "data_quality":
         where = "" if facts.get("scope", "market") == "market" else f" for {facts['scope']}"
         if not facts["rejected_total"] and not facts["suspect_flagged"]:
