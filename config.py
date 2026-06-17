@@ -30,10 +30,15 @@ class Config:
     zscore_n: float = 3.0               # std-devs from rolling mean to flag
     min_volume: float = 50.0            # tradeable-signal floor (MT/units) — gates noise
     mad_k: float = 5.0                  # outlier band: drop prices > k·(scaled MAD) from instrument median
-    circuit_breaker_pct: float = 0.20   # cross-source fat-finger kill: drop recent ticks >20% off peer consensus
+    circuit_breaker_pct: float = 0.50   # cross-source fat-finger kill: AUTO-DROP only catastrophic ticks
+    #                                     (>50% off peer consensus). Real renewable dislocations top out
+    #                                     ~30%; true fat-fingers were 800%+ — 20% ate genuine opportunities
+    #                                     AND dropped good ticks via a junk-contaminated median. Subtler
+    #                                     anomalies are FLAGGED (⚠ suspect / dislocation queue), not dropped.
     lookback_days: int = 90             # window for stats/curves (13A: slice, don't use all 50k)
     curve_horizons: tuple = (30, 60, 90)
-    stale_after: float = 3600.0         # freshness banner threshold (sec, vs feed timestamp.max — C2)
+    stale_after: float = 172800.0       # 48h freshness threshold (vs robust feed_now — C2). Instruments
+    #                                     quote daily/weekly, so a 1h gate flagged ~all of them (noise).
 
 
 CONFIG = Config()

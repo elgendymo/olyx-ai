@@ -59,20 +59,21 @@ def test_suspect_flag_on_board():
 
 
 def test_fault_injection_spike_caught_drift_kept():
-    """Chaos seam: a 25% spike must trip the breaker (with saved_capital); a 4% drift must not."""
+    """Chaos seam: a catastrophic spike trips the breaker (with saved_capital); a normal cross-source
+    dislocation under the 50% line is kept (it's an opportunity, not bad data)."""
     now = "2026-06-10T08:00:00Z"
     base = _frame([
         {"product_name": "RME", "source": "a", "price": 1000.0, "volume": 10, "timestamp": now},
         {"product_name": "RME", "source": "b", "price": 1000.0, "volume": 10, "timestamp": now},
     ])
-    spiked = analytics.inject_fault(base, "RME", "MT", "EUR", 0.25, volume=500)
+    spiked = analytics.inject_fault(base, "RME", "MT", "EUR", 1.0, volume=500)   # +100% = fat finger
     _, dropped = analytics.guard(spiked)
     inj = [d for d in dropped if d["source"] == "chaos_inject"]
     assert len(inj) == 1 and inj[0]["saved_capital"] > 0   # caught + € quantified
 
-    drift = analytics.inject_fault(base, "RME", "MT", "EUR", 0.04, volume=500)
+    drift = analytics.inject_fault(base, "RME", "MT", "EUR", 0.25, volume=500)  # 25% spread = real
     _, dropped2 = analytics.guard(drift)
-    assert [d for d in dropped2 if d["source"] == "chaos_inject"] == []  # real dislocation kept
+    assert [d for d in dropped2 if d["source"] == "chaos_inject"] == []  # dislocation kept, not dropped
 
 
 if __name__ == "__main__":

@@ -22,8 +22,17 @@ GROUP = ["product_name", "unit", "currency"]
 
 
 def feed_now(df):
-    """Reference instant for all freshness — the newest packet, not the wall clock (C2)."""
-    return df["timestamp"].max()
+    """Robust reference instant for all freshness — the feed's own newest packet (C2, not wall
+    clock), but ignoring a thin tail of future-dated junk ticks. The mock feed carries dirty
+    far-future timestamps; a single one as raw max() would make every other instrument look stale
+    (and would push the contemporaneous-disagreement window into an empty future). So 'now' is the
+    latest tick at/under the 99th percentile — outlier-robust, still a real packet time."""
+    ts = df["timestamp"].dropna().sort_values()
+    if ts.empty:
+        return df["timestamp"].max()
+    cut = ts.iloc[min(int(len(ts) * 0.99), len(ts) - 1)]
+    robust = ts[ts <= cut].max()
+    return robust if pd.notna(robust) else ts.max()
 
 
 def _window(df, days, now=None):
@@ -136,7 +145,8 @@ def latest_with_freshness(df):
     susp = _suspect_keys(df)
     g = df.sort_values("timestamp").groupby(GROUP, as_index=False).last()
     g = g.rename(columns={"price": "last_price"})
-    g["freshness_sec"] = (now - g["timestamp"]).dt.total_seconds().round(1)
+    # clip at 0: a future-dated tick (past the robust 'now') is current, never "negative-stale"
+    g["freshness_sec"] = (now - g["timestamp"]).dt.total_seconds().clip(lower=0).round(1)
     g["is_stale"] = g["freshness_sec"] > CONFIG.stale_after
     g["last_price"] = g["last_price"].round(2)
     g["suspect"] = [tuple(r) in susp for r in g[GROUP].itertuples(index=False, name=None)]
