@@ -6,6 +6,7 @@ Thin presentation over the tested engines (feed/analytics/copilot); the UI compu
 Analytics are cached on a cheap token (bulk fetch time), not by hashing the 50k frame (14A).
 """
 import threading
+from html import escape as esc          # escape feed-derived strings before any unsafe_allow_html
 
 import plotly.graph_objects as go
 import streamlit as st
@@ -289,9 +290,9 @@ with st.container(border=True):
         for r in trd.head(5).to_dict("records"):
             sig = (f"{round(r['magnitude'] * 100, 2)}% source spread" if r["type"] == "source_disagreement"
                    else f"{r['magnitude']}σ move")
-            rows += (f'<div class="opp"><span class="dot">●</span> <b>{r["product_name"]}</b> '
-                     f'<span class="mut">({r["currency"]})</span> — <span class="sig">{sig}</span> '
-                     f'<span class="mut">· {int(r["volume"])} vol · {r["detail"]}</span></div>')
+            rows += (f'<div class="opp"><span class="dot">●</span> <b>{esc(r["product_name"])}</b> '
+                     f'<span class="mut">({esc(r["currency"])})</span> — <span class="sig">{esc(sig)}</span> '
+                     f'<span class="mut">· {int(r["volume"])} vol · {esc(r["detail"])}</span></div>')
         st.markdown(rows, unsafe_allow_html=True)
 
 # ── Pulse (full width) ──────────────────────────────────────────────
@@ -376,10 +377,10 @@ with st.container(border=True):
         sent = copilot._naive_sentiment(body)
         st.markdown(
             f'<div class="eml unread"><div>🔵</div>'
-            f'<div><div class="who">{who}</div><div class="subj">{subj}</div>'
-            f'<div class="snip">{body[:96]}…</div></div>'
-            f'<div class="meta">{t}<br><span class="chip {_SENT_CLS[sent]}">{sent}</span> '
-            f'<span class="chip neut">{asset}</span></div></div>', unsafe_allow_html=True)
+            f'<div><div class="who">{esc(who)}</div><div class="subj">{esc(subj)}</div>'
+            f'<div class="snip">{esc(body[:96])}…</div></div>'
+            f'<div class="meta">{esc(t)}<br><span class="chip {_SENT_CLS[sent]}">{sent}</span> '
+            f'<span class="chip neut">{esc(asset)}</span></div></div>', unsafe_allow_html=True)
     bull = sum(copilot._naive_sentiment(b) == "Bullish" for *_, b in MOCK_EMAILS)
     bear = sum(copilot._naive_sentiment(b) == "Bearish" for *_, b in MOCK_EMAILS)
     st.caption(f"Net read: 🟢 {bull} bullish · 🔴 {bear} bearish across 6 unread.")
