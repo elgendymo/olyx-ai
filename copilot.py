@@ -570,7 +570,10 @@ def _facts_to_text(facts):
             f"{i['instrument']} ({i['currency']}) "
             f"{('spread ' + str(i['spread_pct']) + '%') if 'spread_pct' in i else (str(i['sigma']) + 'σ')}"
             f"{'' if i['tradeable'] else ' [low-vol]'}" for i in items[:3])
-        return f"{facts['opportunities_found']} dislocation(s). Top: {head}."
+        # lead with the TRADEABLE count — that's what "needs attention" means (volume-gated, the
+        # dashboard hero); the total includes low-vol noise that isn't actionable.
+        return (f"{facts['tradeable']} tradeable opportunity(ies) (of {facts['opportunities_found']} "
+                f"dislocations). Top: {head}.")
     if intent == "forward_curve":
         c = facts.get("curve") or {}
         if c.get("status") != "ok":
