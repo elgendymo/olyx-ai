@@ -2,7 +2,7 @@
 
 We CANNOT meaningfully unit-test generation quality (nondeterministic) — so we test the
 plumbing and, above all, that chat() returns None on every failure path (the copilot's
-degradation depends on it). One opt-in live test (OLYX_LIVE_LLM=1) pings the real model.
+degradation depends on it). One opt-in live test (BROKER_LIVE_LLM=1) pings the real model.
 """
 import os
 
@@ -92,9 +92,9 @@ def test_health_ollama_detects_model(monkeypatch):
     assert h["ok"] is True and h["provider"] == "ollama"
 
 
-# ── opt-in live smoke (skipped unless OLYX_LIVE_LLM=1) ──────────────
-@pytest.mark.skipif(os.environ.get("OLYX_LIVE_LLM") != "1",
-                    reason="set OLYX_LIVE_LLM=1 to hit the real local model")
+# ── opt-in live smoke (skipped unless BROKER_LIVE_LLM=1) ──────────────
+@pytest.mark.skipif(os.environ.get("BROKER_LIVE_LLM") != "1",
+                    reason="set BROKER_LIVE_LLM=1 to hit the real local model")
 def test_live_model_narrates():
     out = llm.chat("You are a terse trading assistant.",
                    "Say the number 42 back to me in a sentence.")

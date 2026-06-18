@@ -27,7 +27,7 @@ before your competitors, on data you can put real money behind.
 - **Single-instrument depth over breadth.** The copilot answers one instrument richly; a
   side-by-side multi-instrument comparison and a historical "what-if" backtester are not built.
 - **Deferred, with triggers (see PHASES.md "Future work"):** streaming `ijson` ingestion, a copilot
-  web-search tool, and unifying OLYX's other data sources (CRM/positions/email) into one pane.
+  web-search tool, and unifying the desk's other data sources (CRM/positions/email) into one pane.
 
 ## The truth — what I would NOT ship as-is, and where AI output needed fixing
 **Would not ship as-is:**
@@ -75,7 +75,7 @@ dislocations, i.e. the actual opportunities) — are documented in the build log
 
 | | |
 |---|---|
-| **Billed to** | Jasper — OLYX biofuel desk |
+| **Billed to** | Jasper — biofuel desk |
 | **Project** | Magic Spyglass |
 | **Period** | 16 Jun 2026 14:56 → 17 Jun 2026 12:21 |
 

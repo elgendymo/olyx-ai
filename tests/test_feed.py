@@ -102,6 +102,18 @@ def test_validate_future_timestamp_kept():
     assert len(df) == 1            # forward data is legit; freshness is feed-relative (C2)
 
 
+def test_validate_mixed_timestamp_formats_all_survive():
+    # regression: a column mixing fractional-second and plain ISO timestamps used to make pandas
+    # infer ONE format and silently coerce the others to NaT — dropping good ticks. All must survive.
+    df = feed.validate(_df([
+        _rec(id="frac", timestamp="2026-06-10T08:59:51.735Z"),
+        _rec(id="plain", timestamp="2026-06-16T08:04:00Z"),
+        _rec(id="offset", timestamp="2026-06-10T10:00:00+02:00"),
+        _rec(id="bad", timestamp="not-a-date"),
+    ]))
+    assert sorted(df["id"]) == ["frac", "offset", "plain"]   # only the truly-bad one dropped
+
+
 def test_validate_offset_timestamp_normalized_to_utc():
     df = feed.validate(_df([_rec(id="o", timestamp="2026-06-10T10:00:00+02:00")]))
     assert df.loc[0, "timestamp"] == pd.Timestamp("2026-06-10T08:00:00Z")
@@ -234,8 +246,68 @@ def test_bulk_serves_last_good_on_failure(monkeypatch, tmp_path):
 def test_bulk_parses_and_caches_on_success(monkeypatch, tmp_path):
     cache = tmp_path / "bulk.parquet"
     monkeypatch.setattr(feed, "CACHE_FILE", cache)
+    monkeypatch.setattr(feed, "REPORT_FILE", tmp_path / "bulk.report.json")
     monkeypatch.setattr(feed, "_cache_fresh", lambda: False)
     lines = [json.dumps(_rec(id="a")), json.dumps(_rec(id="b"))]
     monkeypatch.setattr(feed, "_get", lambda *a, **k: _FakeResp(lines=lines))
     df, _ = feed.bulk()
     assert sorted(df["id"]) == ["a", "b"] and cache.exists()
+
+
+# ── refresh must NOT overwrite a good last-good cache with a degraded fetch (review) ──
+def test_bulk_keeps_last_good_when_refresh_regresses(monkeypatch, tmp_path):
+    cache = tmp_path / "bulk.parquet"
+    good = feed.validate(_df([_rec(id=str(i), price=1500 + i,
+                                   timestamp=f"2026-06-10T08:00:{i:02d}Z") for i in range(10)]))
+    good.to_parquet(cache, index=False)
+    monkeypatch.setattr(feed, "CACHE_FILE", cache)
+    monkeypatch.setattr(feed, "REPORT_FILE", tmp_path / "bulk.report.json")
+    monkeypatch.setattr(feed, "_cache_fresh", lambda: False)              # force a fetch
+    monkeypatch.setattr(feed, "_get", lambda *a, **k: _FakeResp(lines=[json.dumps(_rec(id="lonely"))]))
+    df, _ = feed.bulk()
+    assert len(df) == 10 and "lonely" not in set(df["id"])               # last-good preserved
+    assert len(pd.read_parquet(cache)) == 10                             # on-disk cache untouched
+
+
+def test_bulk_replaces_cache_when_refresh_healthy(monkeypatch, tmp_path):
+    cache = tmp_path / "bulk.parquet"
+    feed.validate(_df([_rec(id="old1"), _rec(id="old2")])).to_parquet(cache, index=False)
+    monkeypatch.setattr(feed, "CACHE_FILE", cache)
+    monkeypatch.setattr(feed, "REPORT_FILE", tmp_path / "bulk.report.json")
+    monkeypatch.setattr(feed, "_cache_fresh", lambda: False)
+    lines = [json.dumps(_rec(id="n1")), json.dumps(_rec(id="n2")), json.dumps(_rec(id="n3"))]
+    monkeypatch.setattr(feed, "_get", lambda *a, **k: _FakeResp(lines=lines))
+    df, _ = feed.bulk()
+    assert sorted(df["id"]) == ["n1", "n2", "n3"]                        # healthy fetch wins
+
+
+# ── rejection audit trail (review: drops were silent) ──────────────────
+def test_validate_report_counts_and_reasons():
+    df, rep = feed.validate(_df([
+        _rec(id="ok"),
+        _rec(id="badprice", price=0),
+        _rec(id="nullprice", price=None),
+        _rec(id="badts", timestamp="not-a-date"),
+        _rec(id="", price=1200),
+        _rec(id="noprod", product_name=""),
+        _rec(id="ok", price=1600),               # duplicate id -> latest-wins dedupe
+    ]), with_report=True)
+    assert list(df["id"]) == ["ok"] and df.loc[0, "price"] == 1600
+    assert rep["ingested"] == 7 and rep["kept"] == 1 and rep["rejected"] == 6
+    assert rep["reasons"] == {"bad_price": 2, "bad_timestamp": 1, "missing_id": 1,
+                              "missing_product": 1, "duplicate_id": 1}
+    assert rep["samples"] and all("reason" in s for s in rep["samples"])
+
+
+def test_validate_default_signature_unchanged():
+    # everything downstream still calls validate(df) -> df (no tuple)
+    out = feed.validate(_df([_rec(id="x")]))
+    assert isinstance(out, pd.DataFrame)
+
+
+# ── bundled seed: a clean checkout always renders real, labeled data (review) ──
+def test_seed_renders_real_data_and_surfaces_rejections():
+    df, rep = feed.seed(with_report=True)
+    assert not df.empty and df["source"].nunique() >= 2 and df["product_name"].nunique() >= 2
+    assert str(df["timestamp"].dt.tz) == "UTC"          # went through the real chokepoint
+    assert rep["rejected"] >= 1                          # the bundled junk is visibly rejected

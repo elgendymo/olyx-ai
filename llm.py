@@ -14,10 +14,10 @@ bad provider). The contract is that None is normal: the caller degrades to showi
 facts. That is the whole resilience story for this layer.
 
 Env:
-  OLYX_LLM_PROVIDER  ollama (default) | anthropic | openai | offline
-  OLYX_LLM_MODEL     override the model id (default per provider)
+  BROKER_LLM_PROVIDER  ollama (default) | anthropic | openai | offline
+  BROKER_LLM_MODEL     override the model id (default per provider)
   OLLAMA_HOST        default http://localhost:11434
-  OLYX_LLM_TIMEOUT   seconds (default 60 — local 8B is slow)
+  BROKER_LLM_TIMEOUT   seconds (default 60 — local 8B is slow)
 """
 import logging
 import os
@@ -26,16 +26,16 @@ import requests
 
 log = logging.getLogger("llm")
 
-PROVIDER = os.environ.get("OLYX_LLM_PROVIDER", "ollama").lower()
+PROVIDER = os.environ.get("BROKER_LLM_PROVIDER", "ollama").lower()
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-TIMEOUT = float(os.environ.get("OLYX_LLM_TIMEOUT", "60"))
+TIMEOUT = float(os.environ.get("BROKER_LLM_TIMEOUT", "60"))
 
 # qwen2.5:7b beat llama3.1:8b in our narration bake-off (correctly read the dislocation count;
 # more articulate). Briefy preferred llama3.1:8b for TOOL-CALLING/JSON — different job. Swap via env.
 _DEFAULT_MODEL = {"ollama": "qwen2.5:7b",
                   "anthropic": "claude-haiku-4-5-20251001",
                   "openai": "gpt-4o-mini"}
-MODEL = os.environ.get("OLYX_LLM_MODEL") or _DEFAULT_MODEL.get(PROVIDER, "qwen2.5:7b")
+MODEL = os.environ.get("BROKER_LLM_MODEL") or _DEFAULT_MODEL.get(PROVIDER, "qwen2.5:7b")
 
 
 # ── provider adapters (same shape; raw HTTP like Briefy) ────────────

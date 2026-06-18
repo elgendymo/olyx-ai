@@ -1,4 +1,4 @@
-# CLAUDE.md — Magic Spyglass (OLYX broker-edge tool)
+# CLAUDE.md — Magic Spyglass (broker-edge tool)
 
 Agent context for this repo. Read before editing. Keep it current when invariants change.
 
@@ -16,7 +16,7 @@ ollama pull qwen2.5:7b             # local copilot model, no API key (default pr
 streamlit run app.py              # http://localhost:8501
 python -m pytest                  # the `-m` puts repo root on sys.path; bare `pytest` fails to import
 ```
-- LLM is swappable by env: `OLYX_LLM_PROVIDER=ollama|anthropic|openai`, `OLYX_LLM_MODEL=…`
+- LLM is swappable by env: `BROKER_LLM_PROVIDER=ollama|anthropic|openai`, `BROKER_LLM_MODEL=…`
   (cloud reads `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`). Feed endpoint: `FEED_BASE_URL`.
 - E2E smoke (headless, catches render errors unit tests can't):
   `python -c "from streamlit.testing.v1 import AppTest; print(bool(AppTest.from_file('app.py').run().exception))"`
@@ -34,7 +34,16 @@ python -m pytest                  # the `-m` puts repo root on sys.path; bare `p
 ## Invariants — do not break (each has a reason and tests)
 - **`validate()` is the single data-cleaning + sanitization chokepoint.** Everything downstream trusts
   its output: typed, deduped on `id` (latest wins), UTC, price/volume bounded, NaN/Inf dropped,
-  control chars stripped + strings length-capped. Don't clean data anywhere else.
+  control chars stripped + strings length-capped. Don't clean data anywhere else. Timestamps parse
+  with `format="ISO8601"` (per-value), never inferred — inference coerced valid-but-differently-formatted
+  ticks to NaT and silently dropped good data. `validate(df, with_report=True)` returns an audit trail
+  (ingested/kept/rejected + mutually-exclusive reasons + sample rows); **drops are never silent.**
+- **A clean checkout is never an empty screen.** `feed.seed()` ships a bundled JSON sample of real
+  history (with the feed's raw junk, so the rejection log is exercised) — validated through the same
+  chokepoint, surfaced ONLY when cache+feed both fail, and always labeled "not live". App load order:
+  cache → live → seed.
+- **A refresh must never destroy last-good.** `feed._safe_to_replace_cache()` blocks a degraded/empty
+  fetch (< `cache_replace_min_ratio` of prior rows) from overwriting the cache; the old frame is kept.
 - **"Now" = `analytics.feed_now(df)`**, a robust 99th-percentile of `timestamp.max` — NOT the wall
   clock (the feed carries future-dated junk; raw `max()` made everything look stale). Freshness clips
   at 0.
