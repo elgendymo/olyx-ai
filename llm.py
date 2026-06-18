@@ -139,6 +139,30 @@ def chat(system, user, max_tokens=400, temperature=0.0):
         return None
 
 
+def ping():
+    """End-to-end diagnostic: actually ask the model for one token. Returns (ok, detail) where
+    detail is the raw reply on success, or a human-readable error (incl. the API's response body)
+    on failure — so the UI can show WHY narration is silently falling back to deterministic facts."""
+    fn = _DISPATCH.get(PROVIDER)
+    if fn is None:
+        return False, f"unknown provider {PROVIDER!r}"
+    try:
+        out = fn("You are a terse assistant.", "Reply with exactly: OK", 16, 0.0)
+        if out:
+            return True, out
+        return False, "no text returned — likely a missing API key (call was skipped)"
+    except requests.HTTPError as e:                # surface the API's actual complaint (key/model/quota)
+        body = ""
+        try:
+            body = (e.response.text or "")[:200]
+        except Exception:
+            pass
+        status = getattr(getattr(e, "response", None), "status_code", "?")
+        return False, f"HTTP {status}: {body}"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {str(e)[:160]}"
+
+
 def health():
     """Best-effort readiness for the UI badge: is the configured provider usable right now?"""
     if PROVIDER == "ollama":
@@ -150,8 +174,18 @@ def health():
         except Exception as e:
             return {"provider": PROVIDER, "model": MODEL, "ok": False, "error": str(e)[:80]}
     if PROVIDER == "gemini":
-        # no cheap liveness probe — key presence is our readiness signal.
-        return {"provider": PROVIDER, "model": MODEL, "ok": bool(GEMINI_API_KEY)}
+        # Real liveness: list models (cheap, no token cost) so the badge proves the key is VALID
+        # and reachable — not merely that the env var is set (a present-but-invalid key looked OK).
+        if not GEMINI_API_KEY:
+            return {"provider": PROVIDER, "model": MODEL, "ok": False, "error": "no GEMINI_API_KEY"}
+        try:
+            r = requests.get("https://generativelanguage.googleapis.com/v1beta/models",
+                             params={"key": GEMINI_API_KEY}, timeout=3)
+            r.raise_for_status()
+            names = [m.get("name", "").split("/")[-1] for m in r.json().get("models", [])]
+            return {"provider": PROVIDER, "model": MODEL, "ok": True, "models": names}
+        except Exception as e:
+            return {"provider": PROVIDER, "model": MODEL, "ok": False, "error": str(e)[:80]}
     if PROVIDER in ("anthropic", "openai"):
         key = os.environ.get("ANTHROPIC_API_KEY" if PROVIDER == "anthropic" else "OPENAI_API_KEY")
         return {"provider": PROVIDER, "model": MODEL, "ok": bool(key)}

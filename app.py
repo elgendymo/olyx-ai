@@ -242,6 +242,14 @@ with st.sidebar:
     st.markdown("### 🔭 Copilot")
     h = llm_health()
     st.caption(f"{'🟢' if h.get('ok') else '🔴'} {h.get('provider')} · `{h.get('model')}`")
+    if h.get("error"):
+        st.caption(f"⚠️ {esc(str(h['error']))}")
+    with st.expander("🔧 Test LLM"):
+        # End-to-end check: distinguishes "model not reachable" from "narration rejected by the
+        # grounding gate" — answers stay deterministic in BOTH cases, so the badge alone isn't enough.
+        if st.button("Ping model"):
+            ok, detail = llm.ping()
+            (st.success if ok else st.error)(f"{'reply' if ok else 'failed'}: {esc(str(detail))}")
     for m in st.session_state["chat"]:
         with st.chat_message(m["role"]):
             st.write(m["content"])
