@@ -112,6 +112,25 @@ section[data-testid="stSidebar"] { width: 380px !important; min-width: 380px !im
 @keyframes orb-glow {
   0%,100% { transform:scale(1);    filter:brightness(1); }
   50%      { transform:scale(1.08); filter:brightness(1.15); } }
+/* ── responsive: phones/tablets (the desk is also checked on mobile) ── */
+@media (max-width: 820px) {
+  /* the desktop sidebar is pinned to 380px; on small screens that overflows the viewport */
+  section[data-testid="stSidebar"] { width: 86vw !important; min-width: 86vw !important; }
+}
+@media (max-width: 640px) {
+  .block-container { padding-top: 1rem; padding-left: .7rem; padding-right: .7rem; max-width: 100%; }
+  h1 { font-size: 1.5rem !important; }
+  /* stack any row of columns (metrics, A/B panels, inbox header) instead of squishing them */
+  [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: .5rem !important; }
+  [data-testid="stHorizontalBlock"] > div { flex: 1 1 100% !important; min-width: 100% !important; }
+  [data-testid="stMetricValue"] { font-size: 1.15rem !important; }
+  [data-testid="stMetric"] { padding: .45rem .7rem; }
+  /* let the greeting/clock header wrap rather than collide (see mobile screenshot) */
+  .hero-head { flex-wrap: wrap !important; }
+  .hero-head .hero-clock { text-align: left !important; }
+  /* tables stay usable by scrolling horizontally rather than crushing columns */
+  [data-testid="stDataFrame"] { font-size: .76rem; }
+}
 </style>""", unsafe_allow_html=True)
 
 
@@ -121,12 +140,27 @@ section[data-testid="stSidebar"] { width: 380px !important; min-width: 380px !im
 # refresh fetches in a daemon thread and the UI swaps in the new data silently when it lands.
 @st.cache_data(show_spinner=False)
 def load_cached():
+    """Returns (df, token, mode, report). `mode` is the provenance shown to Jasper so live data
+    is never confused with the bundled sample. `report` is validate()'s rejection audit trail.
+
+    Resolution order, so a clean checkout (or a down feed) is NEVER an empty screen:
+      cache (last-good parquet) → live fetch → bundled sample seed.
+    """
     df = feed._read_cache()
-    if df is None or df.empty:
-        with st.spinner("First load — fetching market history (one-time, ~1–2 min)…"):
-            df, _ = feed.bulk(force=True)
-    token = feed.CACHE_FILE.stat().st_mtime if feed.CACHE_FILE.exists() else 0.0
-    return df, token
+    if df is not None and not df.empty:
+        # report from the last live refresh in this deployment, if any (else synthesize a clean one)
+        rep = feed.read_report() or {"ingested": int(len(df)), "kept": int(len(df)), "rejected": 0,
+                                      "reasons": {}, "note": "loaded from last-good cache; the full "
+                                      "rejection log is recorded on each live refresh"}
+        return df, feed.CACHE_FILE.stat().st_mtime, "cache", rep
+    with st.spinner("First load — fetching market history (one-time, ~1–2 min)…"):
+        df, _ = feed.bulk(force=True)
+    if df is not None and not df.empty:
+        token = feed.CACHE_FILE.stat().st_mtime if feed.CACHE_FILE.exists() else 0.0
+        return df, token, "live", (feed.read_report() or {})
+    # feed unreachable AND no cache — render the bundled sample (real data, clearly labeled)
+    df, rep = feed.seed(with_report=True)
+    return df, 0.0, "seed", rep
 
 
 # Source filter scopes the dashboard views: a subset of the already-validated frame, so no new
@@ -135,7 +169,7 @@ def load_cached():
 # fat-finger-free frame (Story 3) and shares one source-attributed kill log (Story 4).
 @st.cache_data(show_spinner=False)
 def _scoped(token, sources):
-    df = load_cached()[0]
+    df = load_cached()[0]  # provenance/report unused here; analytics only need the frame
     if sources:
         df = df[df["source"].isin(sources)]
     return analytics.guard(df)   # -> (clean_df, dropped)
@@ -182,7 +216,7 @@ def refresh_watcher():
             st.rerun()
 
 
-df, token = load_cached()
+df, token, data_mode, dq_report = load_cached()
 
 # ── persistent Copilot (sidebar — always visible beside the data) ───
 with st.sidebar:
@@ -220,7 +254,7 @@ _period, _orb_cls, _phrase = (
 )
 _now_str = _dt.datetime.now().strftime("%a %d %b · %H:%M")
 st.markdown(f"""
-<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;padding-top:.8rem;margin-bottom:.6rem;overflow:visible">
+<div class="hero-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding-top:.8rem;margin-bottom:.6rem;overflow:visible">
   <div>
     <div style="display:flex;align-items:center;gap:.55rem;margin-bottom:.3rem;line-height:1">
       <span class="greeting-orb {_orb_cls}"></span>
@@ -235,7 +269,7 @@ st.markdown(f"""
       🔭 Magic Spyglass &nbsp;·&nbsp; Valid dislocations surfaced. Noise filtered.
     </p>
   </div>
-  <div style="text-align:right;flex-shrink:0;padding-top:.2rem">
+  <div class="hero-clock" style="text-align:right;flex-shrink:0;padding-top:.2rem">
     <div style="font-family:var(--mono);font-size:.95rem;font-weight:600;color:#e2e8f0;
       letter-spacing:.02em">{_now_str}</div>
     <div style="font-size:.72rem;color:#475569;margin-top:.1rem;letter-spacing:.05em">LOCAL TIME</div>
@@ -243,8 +277,15 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 if df.empty:
-    st.error("Feed unreachable and no cached data. (fail-silent: nothing fabricated)")
+    st.error("Feed unreachable, no cache, and the bundled sample failed to load. "
+             "(fail-silent: nothing fabricated)")
     st.stop()
+
+# Provenance banner — the sample must never be mistaken for live data (data-trust).
+if data_mode == "seed":
+    st.warning("📦 **Showing bundled sample data** — the live feed is unreachable and no cache "
+               "exists. This is a real (but static) slice of history for demo, **not live**. "
+               "Use “↻ Refresh feed” once connectivity returns.")
 
 # ── source scope ────────────────────────────────────────────────────
 # Each market source (broker_quote, exchange, …) is its own read on the market. Let Jasper
@@ -277,6 +318,38 @@ c = st.columns(3)
 c[0].metric("Instruments", lat.shape[0])
 c[1].metric("Newest packet (UTC)", now.strftime("%m-%d %H:%M"))
 c[2].metric("Stale", n_stale)
+
+# ── DATA QUALITY: the ingestion audit trail (rejected records are no longer silent) ──
+# Drops happen at the validate() chokepoint; this is the visible record of WHAT was rejected
+# and WHY, so Jasper can trust the cleaned frame instead of taking it on faith.
+with st.container(border=True):
+    st.markdown("##### 🧾 DATA QUALITY · INGESTION AUDIT")
+    rep = dq_report or {}
+    ing, kept, rej = rep.get("ingested", len(df)), rep.get("kept", len(df)), rep.get("rejected", 0)
+    rate = (kept / ing * 100) if ing else 100.0
+    q = st.columns(4)
+    q[0].metric("Records ingested", f"{ing:,}")
+    q[1].metric("Accepted (clean)", f"{kept:,}")
+    q[2].metric("Rejected", f"{rej:,}")
+    q[3].metric("Pass rate", f"{rate:.1f}%")
+    reasons = {k: v for k, v in (rep.get("reasons") or {}).items() if v}
+    if rej and reasons:
+        _LBL = {"bad_price": "Bad / out-of-bounds price", "bad_timestamp": "Unparseable timestamp",
+                "missing_id": "Missing id", "missing_product": "Missing product",
+                "duplicate_id": "Duplicate id (latest kept)"}
+        chips = " ".join(
+            f'<span class="chip neut">{esc(_LBL.get(k, k))}: <b>{v:,}</b></span>'
+            for k, v in sorted(reasons.items(), key=lambda kv: -kv[1]))
+        st.markdown(f'<div style="margin:.1rem 0 .2rem">{chips}</div>', unsafe_allow_html=True)
+        samples = rep.get("samples") or []
+        if samples:
+            with st.expander(f"Rejected records — {min(len(samples), 12)} examples (source-attributed)"):
+                st.dataframe(samples[:12], hide_index=True, width="stretch")
+        st.caption("Dropped at the validate() chokepoint — every downstream number trusts what passed.")
+    elif rep.get("note"):
+        st.caption(rep["note"])
+    else:
+        st.caption("All ingested records passed validation — nothing rejected.")
 
 # ── HERO: needs attention now ───────────────────────────────────────
 with st.container(border=True):
