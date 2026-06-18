@@ -608,6 +608,37 @@ than HTML sanitization for fields that should never contain markup.
 **Verified:** 123 tests pass (+5 security: control-char/null strip, length cap, injection-escaped-at-
 render, record-count cap, oversized-line skip); e2e clean; validate 48k rows in 0.05s.
 
+## Phase 7 — Data foundation hardened end-to-end (review response)
+
+Review verdict: breadth landed before the data foundation was trustworthy from zero. Four concrete
+failures, each fixed and tested — the foundation now holds run-from-zero.
+
+1. **Clean checkout loaded no data.** The only fallback was a binary parquet (version/ignore-fragile).
+   Fix: ship `seed_data.json` — a bundled, human-readable slice of REAL history (8 instruments, 5
+   sources, ~90d) carrying the feed's own raw junk on purpose. `feed.seed()` validates it through the
+   same chokepoint. App load order is now **cache → live → seed**, so a clean checkout (or a dead feed)
+   always renders real data — never an empty screen, never fabricated, and clearly labeled "📦 sample,
+   not live" so it can't be mistaken for the market.
+2. **A refresh could overwrite its own cached fallback.** `bulk()` wrote the cache unconditionally, so a
+   flaky/truncated fetch replaced last-good with worse data. Fix: `_safe_to_replace_cache()` — a refresh
+   replaces the cache only if non-empty AND ≥ `cache_replace_min_ratio` (50%) of prior rows; otherwise
+   the old frame is kept and the regression is logged.
+3. **Invalid records dropped silently.** Fix: `validate(df, with_report=True)` returns an audit trail —
+   ingested/kept/rejected, a mutually-exclusive reason breakdown (bad price / bad timestamp / missing
+   id / missing product / duplicate), and attributed sample rows. Surfaced in a new **DATA QUALITY ·
+   INGESTION AUDIT** card. Drops are no longer an act of faith.
+4. **Silent good-data loss (found while hardening).** `pd.to_datetime` inferred ONE format from row 0,
+   then coerced every valid-but-differently-formatted timestamp (e.g. no fractional seconds) to NaT —
+   silently dropping good ticks. Fix: `format="ISO8601"` parses each value by its own ISO variant
+   (also removes the dateutil warnings).
+
+Plus responsiveness: media queries make the sidebar, hero header, metric/column rows and tables usable
+on mobile (the desk is checked on a phone), without disturbing the desktop layout.
+
+**Verified:** 129 tests pass (+6: rejection-report counts/reasons, seed renders + surfaces rejections,
+last-good kept on degraded refresh, cache replaced on healthy refresh, mixed-timestamp survival,
+default `validate(df)->df` unchanged); e2e headless clean; seed flows through every panel.
+
 ## Future work — deliberately out of scope now, likely important later
 
 Captured so the decisions are explicit and reviewable, not forgotten. None are built; each has a clear
