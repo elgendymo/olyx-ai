@@ -1,6 +1,6 @@
 # Magic Spyglass
 
-A broker-edge analytics tool for Jasper (OLYX biofuel desk). It cuts through market noise to
+A broker-edge analytics tool for Jasper, a biofuel broker. It cuts through market noise to
 surface **valid pricing dislocations** in renewable feedstocks (HVO, UCO, RME) and compliance
 certificates (THG-Quoten, EREs) — and answers "is now a good time to sell?" with cited numbers.
 
@@ -57,8 +57,8 @@ the copilot returns the deterministic **facts receipt** and the digest returns t
 per-email asset+sentiment lines. The numeric dashboard (prices, dislocations, freshness, curve)
 is fully usable without an LLM, but the *AI summarisation/narration* is only there with one running.
 
-LLM is swappable via env: `OLYX_LLM_PROVIDER=ollama|anthropic|openai` (default `ollama`,
-model `qwen2.5:7b`), `OLYX_LLM_MODEL=…`, `OLLAMA_HOST=…`. Cloud providers read
+LLM is swappable via env: `BROKER_LLM_PROVIDER=ollama|anthropic|openai` (default `ollama`,
+model `qwen2.5:7b`), `BROKER_LLM_MODEL=…`, `OLLAMA_HOST=…`. Cloud providers read
 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`. The feed endpoint is one env var: `FEED_BASE_URL`.
 
 > Tests are run with `python -m pytest` (the `-m` puts the repo root on the import path); plain

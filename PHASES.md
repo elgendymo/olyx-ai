@@ -181,7 +181,7 @@ already a one-line env failover (Phase 6).
 ## Phase 4a — `llm.py` (swappable LLM client, local-first, no API key)
 
 **Done**
-- Briefy-style provider abstraction: `chat(system, user)` dispatches by `OLYX_LLM_PROVIDER`
+- Briefy-style provider abstraction: `chat(system, user)` dispatches by `BROKER_LLM_PROVIDER`
   (ollama default | anthropic | openai | offline) via raw HTTP. Demo default = **Ollama
   `llama3.1:8b`** (Briefy's benchmarked gold-standard local model; already pulled on this box).
 - **Dropped the `anthropic` SDK dep** — all providers are raw `requests` calls, like Briefy.
@@ -189,10 +189,10 @@ already a one-line env failover (Phase 6).
   bad provider, empty content) → copilot degrades to raw facts. `health()` badge for the UI.
 - temperature 0 + fixed seed for max reproducibility (NOT a guarantee — see limitations).
 - `tests/test_llm.py`: 8 mocked tests (request shape, all fail-silent paths, no-key, health) +
-  1 opt-in live test (`OLYX_LIVE_LLM=1`).
+  1 opt-in live test (`BROKER_LIVE_LLM=1`).
 
 **Why local-first:** user has no Anthropic key. Ollama runs offline, no egress, no cost. Swapping to
-a cloud key later = one env var (`OLYX_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`).
+a cloud key later = one env var (`BROKER_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`).
 
 **Limitations (deliberately accepted; documented):**
 1. **Not deterministic.** Even temp 0 + seed, local generation can vary (kv-cache/threads). So the
@@ -668,5 +668,5 @@ trigger for when it becomes worth doing.
    one pane of glass.
    **Out of scope:** no access to those systems in the take-home; each is a separate integration with
    its own auth, schema, and freshness model.
-   **Trigger:** production deployment inside OLYX, where those sources exist and the integration cost
+   **Trigger:** production deployment on the desk, where those sources exist and the integration cost
    pays back in saved context-switching.

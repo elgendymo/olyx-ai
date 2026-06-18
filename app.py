@@ -1,4 +1,4 @@
-"""Magic Spyglass — broker-edge dashboard for Jasper (OLYX).
+"""Magic Spyglass — broker-edge dashboard for Jasper, a biofuel broker.
 
 Single-glance layout (Briefy-style): persistent copilot in the sidebar, and a main column that
 surfaces what needs attention NOW — no tabs, because a trading desk monitors, it doesn't browse.

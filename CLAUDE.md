@@ -1,4 +1,4 @@
-# CLAUDE.md — Magic Spyglass (OLYX broker-edge tool)
+# CLAUDE.md — Magic Spyglass (broker-edge tool)
 
 Agent context for this repo. Read before editing. Keep it current when invariants change.
 
@@ -16,7 +16,7 @@ ollama pull qwen2.5:7b             # local copilot model, no API key (default pr
 streamlit run app.py              # http://localhost:8501
 python -m pytest                  # the `-m` puts repo root on sys.path; bare `pytest` fails to import
 ```
-- LLM is swappable by env: `OLYX_LLM_PROVIDER=ollama|anthropic|openai`, `OLYX_LLM_MODEL=…`
+- LLM is swappable by env: `BROKER_LLM_PROVIDER=ollama|anthropic|openai`, `BROKER_LLM_MODEL=…`
   (cloud reads `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`). Feed endpoint: `FEED_BASE_URL`.
 - E2E smoke (headless, catches render errors unit tests can't):
   `python -c "from streamlit.testing.v1 import AppTest; print(bool(AppTest.from_file('app.py').run().exception))"`
