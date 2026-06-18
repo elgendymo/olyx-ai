@@ -26,6 +26,8 @@ if "chat" not in st.session_state:                       # C3: survives reruns
 st.markdown("""<style>
 :root { --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
         --accent: #22d3ee; --line: rgba(148,163,184,0.14); }
+/* hard guard: a too-wide sidebar must never create a horizontal scroll / off-screen content */
+html, body, [data-testid="stAppViewContainer"] { overflow-x: hidden !important; max-width: 100vw; }
 .block-container { padding-top: 2rem; padding-bottom: 3rem; max-width: 1380px; }
 /* title */
 h1 { font-weight: 800 !important; letter-spacing: -0.02em; font-size: 2rem !important; }
@@ -60,8 +62,9 @@ section[data-testid="stSidebar"] h3 { letter-spacing: -.01em; }
 .stButton > button:hover { border-color: var(--accent); color: var(--accent); }
 /* selectbox + textarea rounding */
 [data-baseweb="select"] > div, .stTextArea textarea { border-radius: 10px; }
-/* wider sidebar + bigger chat input */
-section[data-testid="stSidebar"] { width: 380px !important; min-width: 380px !important; }
+/* wider sidebar + bigger chat input — only when EXPANDED, so a collapse (esp. on mobile) is
+   never overridden into staying open and shoving the main column off-screen. */
+section[data-testid="stSidebar"][aria-expanded="true"] { width: 380px !important; min-width: 380px !important; }
 [data-testid="stChatInput"] textarea { font-size: .95rem; min-height: 3rem; }
 [data-testid="stChatInput"] { border-radius: 12px; }
 /* gmail-style inbox rows */
@@ -114,8 +117,22 @@ section[data-testid="stSidebar"] { width: 380px !important; min-width: 380px !im
   50%      { transform:scale(1.08); filter:brightness(1.15); } }
 /* ── responsive: phones/tablets (the desk is also checked on mobile) ── */
 @media (max-width: 820px) {
-  /* the desktop sidebar is pinned to 380px; on small screens that overflows the viewport */
-  section[data-testid="stSidebar"] { width: 86vw !important; min-width: 86vw !important; }
+  /* On phones the sidebar must OVERLAY, not push: float it over full-width content and slide it
+     off-canvas when collapsed. (Pinning a width kept it in-flow and shoved the main column off
+     the left edge — the reported overflow.) */
+  section[data-testid="stSidebar"][aria-expanded="true"] {
+    position: fixed !important; top: 0; left: 0; height: 100% !important;
+    width: min(86vw, 360px) !important; min-width: 0 !important; max-width: 92vw !important;
+    z-index: 999990 !important; box-shadow: 0 0 0 100vmax rgba(2,3,5,0.55);
+  }
+  section[data-testid="stSidebar"][aria-expanded="false"] {
+    width: 0 !important; min-width: 0 !important; transform: translateX(-100%) !important;
+    box-shadow: none !important;
+  }
+  /* main column owns the full viewport width regardless of sidebar state */
+  [data-testid="stMain"], section.main { width: 100% !important; min-width: 0 !important; margin-left: 0 !important; }
+  /* keep the open/close control tappable above the overlay */
+  [data-testid="stSidebarCollapsedControl"], [data-testid="stSidebarCollapseButton"] { z-index: 1000000 !important; }
 }
 @media (max-width: 640px) {
   .block-container { padding-top: 1rem; padding-left: .7rem; padding-right: .7rem; max-width: 100%; }
