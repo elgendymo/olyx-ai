@@ -11,3 +11,7 @@ cache/
 .hypothesis/
 .idea/
 .vscode/
+
+# Seed last-good snapshot so Streamlit Cloud renders instantly (refreshes live in bg)
+!cache/
+!cache/bulk.parquet
