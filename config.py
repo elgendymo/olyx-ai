@@ -27,7 +27,10 @@ class Config:
     # ── ingestion hardening (the feed is untrusted third-party data) ──
     max_records: int = 200_000          # stop reading the stream past this (≈4× the ~50k expected)
     max_stream_bytes: int = 200_000_000 # 200MB decoded cap — DoS / decompression-bomb guard
-    max_line_bytes: int = 2_000_000     # skip any single NDJSON line larger than this (2MB)
+    max_line_bytes: int = 50_000_000    # skip any single line larger than this (50MB). The real
+                                        # /feed/bulk arrives as a few ~12MB newline-free blobs, not
+                                        # NDJSON — a 2MB cap silently dropped every line (empty frame
+                                        # on a cold cache). Still far under max_stream_bytes (DoS cap).
     max_str_len: int = 256              # truncate string fields (id/name/source/unit/currency)
 
     # ── analytics (used Phase 3) ──
