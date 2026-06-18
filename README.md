@@ -57,17 +57,18 @@ the copilot returns the deterministic **facts receipt** and the digest returns t
 per-email asset+sentiment lines. The numeric dashboard (prices, dislocations, freshness, curve)
 is fully usable without an LLM, but the *AI summarisation/narration* is only there with one running.
 
-LLM is swappable via env: `BROKER_LLM_PROVIDER=ollama|huggingface|anthropic|openai`,
+LLM is swappable via env: `BROKER_LLM_PROVIDER=ollama|gemini|anthropic|openai`,
 `BROKER_LLM_MODEL=…`, `OLLAMA_HOST=…`. Cloud providers read their own key
-(`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `HF_TOKEN`). The feed endpoint is one env var:
+(`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`). The feed endpoint is one env var:
 `FEED_BASE_URL`.
 
 **Auto-detection (local vs deployed):** leave `BROKER_LLM_PROVIDER` unset and the client picks
-for you — locally it uses **Ollama** (`qwen2.5:7b`); when an **`HF_TOKEN`** is present it routes
-to **Hugging Face** (`Qwen/Qwen2.5-7B-Instruct`, same Qwen family so narration matches). That's
-the Streamlit Cloud story: Cloud can't run an Ollama daemon, so add `HF_TOKEN` under **App →
-Settings → Secrets** (Streamlit exposes secrets as env vars) and the deployed app talks to HF
-while your laptop keeps using local Ollama — no code change, no per-environment config.
+for you — locally it uses **Ollama** (`qwen2.5:7b`); when a **`GEMINI_API_KEY`** is present it
+routes to **Google Gemini** (`gemini-2.0-flash`, free tier). That's the Streamlit Cloud story:
+Cloud can't run an Ollama daemon, so add `GEMINI_API_KEY` under **App → Settings → Secrets**
+(Streamlit exposes secrets as env vars) and the deployed app talks to Gemini while your laptop
+keeps using local Ollama — no code change, no per-environment config. Get a free key at
+[Google AI Studio](https://aistudio.google.com/apikey).
 
 > Tests are run with `python -m pytest` (the `-m` puts the repo root on the import path); plain
 > `pytest` won't find the modules.

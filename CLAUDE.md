@@ -16,10 +16,10 @@ ollama pull qwen2.5:7b             # local copilot model, no API key (default pr
 streamlit run app.py              # http://localhost:8501
 python -m pytest                  # the `-m` puts repo root on sys.path; bare `pytest` fails to import
 ```
-- LLM is swappable by env: `BROKER_LLM_PROVIDER=ollama|huggingface|anthropic|openai`, `BROKER_LLM_MODEL=…`
-  (cloud reads `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`HF_TOKEN`). Feed endpoint: `FEED_BASE_URL`.
-  **Provider auto-detects when `BROKER_LLM_PROVIDER` is unset**: local ⇒ Ollama `qwen2.5:7b`; if an
-  `HF_TOKEN` is present (i.e. Streamlit Cloud secrets) ⇒ Hugging Face `Qwen/Qwen2.5-7B-Instruct`.
+- LLM is swappable by env: `BROKER_LLM_PROVIDER=ollama|gemini|anthropic|openai`, `BROKER_LLM_MODEL=…`
+  (cloud reads `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`GEMINI_API_KEY`). Feed endpoint: `FEED_BASE_URL`.
+  **Provider auto-detects when `BROKER_LLM_PROVIDER` is unset**: local ⇒ Ollama `qwen2.5:7b`; if a
+  `GEMINI_API_KEY` is present (i.e. Streamlit Cloud secrets) ⇒ Google Gemini `gemini-2.0-flash`.
 - E2E smoke (headless, catches render errors unit tests can't):
   `python -c "from streamlit.testing.v1 import AppTest; print(bool(AppTest.from_file('app.py').run().exception))"`
 
