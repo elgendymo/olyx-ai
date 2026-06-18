@@ -19,6 +19,10 @@ class Config:
     backoff_base: float = 0.5           # exp backoff: base * 2**attempt (+ jitter)
     backoff_cap: float = 8.0            # max single sleep
     cache_ttl: float = 300.0            # parquet cache considered fresh for N seconds
+    cache_replace_min_ratio: float = 0.5  # a refresh must yield >= this fraction of last-good rows to
+    #                                       overwrite it — else the flaky feed's degraded/truncated
+    #                                       response would destroy the only good fallback (review: refresh
+    #                                       overwrote its own cache). Keep last-good when a fetch regresses.
     latest_limit: int = 100             # /feed/latest max
     price_min: float = 0.01             # reject sub-cent prices (round to 0.00 at 2dp = misleading)
     price_max: float = 1e9              # reject absurd prices (overflow guard; nautilus PRICE_MAX idea)

@@ -80,8 +80,15 @@ def _get(path, params=None, stream=False, timeout=None):
     return None
 
 
+def _empty_report():
+    return {"ingested": 0, "kept": 0, "rejected": 0,
+            "reasons": {"bad_price": 0, "bad_timestamp": 0, "missing_id": 0,
+                        "missing_product": 0, "duplicate_id": 0},
+            "samples": []}
+
+
 # ── pure validation (no I/O — unit-testable, 2A) ───────────────────
-def validate(df):
+def validate(df, with_report=False):
     """Clean dirty feed data into a typed, deduped, UTC-sorted frame. The system's
     data-integrity core — everything downstream trusts this output.
 
@@ -95,6 +102,11 @@ def validate(df):
       DEDUPE on id keeping the LATEST timestamp (sort-then-keep-last), not input order.
     Future-dated rows are kept on purpose — this feed carries forward data and freshness
     is measured relative to timestamp.max (C2), not the wall clock.
+
+    `with_report=True` -> returns (df, report). The report is the AUDIT TRAIL the review
+    asked for: drops are no longer silent — it carries ingested/kept/rejected counts, a
+    mutually-exclusive reason breakdown, and a few attributed sample rows (what + why).
+    Default (no report) preserves the original `validate(df) -> df` contract everywhere.
     """
     # Route empty/None through the same pipeline so the empty result has consistent typed
     # columns (not object dtype) — keeps validate() idempotent. (found by property testing)
@@ -104,12 +116,22 @@ def validate(df):
     for c in COLUMNS:
         if c not in df.columns:
             df[c] = pd.NA
+    ingested = int(len(df))
+
+    # snapshot the raw (pre-coercion) price/timestamp so the rejection samples can show the
+    # ACTUAL offending value the feed sent, not the post-coercion NaN/NaT.
+    raw_price = df["price"].astype("object")
+    raw_ts = df["timestamp"].astype("object")
 
     df["price"] = pd.to_numeric(df["price"], errors="coerce")
     # volume is a VWAP weight: anything negative, absurd, or non-numeric -> 0 (neutralize, keep price)
     vol = pd.to_numeric(df["volume"], errors="coerce")
     df["volume"] = vol.where((vol >= 0) & (vol <= CONFIG.volume_max), 0.0).fillna(0.0)
-    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
+    # format="ISO8601" parses EACH value by its own ISO variant (with/without fractional seconds,
+    # with/without offset). Without it, pandas infers ONE format from the first row, then silently
+    # coerces every validly-formatted-but-different timestamp to NaT — dropping good ticks as
+    # "bad timestamp". That silent loss is exactly the kind of untrustworthy cleaning we must avoid.
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True, format="ISO8601")
     # Untrusted strings: strip control/null chars (C0 range incl. \x00, plus DEL) and hard-cap
     # length BEFORE anything stores or renders them. This is the single sanitization chokepoint —
     # neutralizes injection payloads and 10MB-string DoS at the one place all feed data passes.
@@ -123,15 +145,49 @@ def validate(df):
     df["source"] = df["source"].replace("", pd.NA).fillna("unknown")
 
     pnum = df["price"].to_numpy(dtype="float64", na_value=np.nan)
-    keep = (
-        df["price"].notna() & (df["price"] >= CONFIG.price_min) & (df["price"] <= CONFIG.price_max) & np.isfinite(pnum)
-        & df["timestamp"].notna()
-        & df["product_name"].notna() & (df["product_name"] != "")
-        & df["id"].notna() & (df["id"] != "")
-    )
-    df = df[keep].sort_values("timestamp", kind="stable")
-    df = df.drop_duplicates(subset="id", keep="last").reset_index(drop=True)
-    return df[COLUMNS]
+    price_ok = df["price"].notna() & (df["price"] >= CONFIG.price_min) & (df["price"] <= CONFIG.price_max) & np.isfinite(pnum)
+    ts_ok = df["timestamp"].notna()
+    id_ok = df["id"].notna() & (df["id"] != "")
+    prod_ok = df["product_name"].notna() & (df["product_name"] != "")
+    keep = price_ok & ts_ok & id_ok & prod_ok
+
+    out = df[keep].sort_values("timestamp", kind="stable")
+    out = out.drop_duplicates(subset="id", keep="last").reset_index(drop=True)
+    result = out[COLUMNS]
+    if not with_report:
+        return result
+
+    # mutually-exclusive reason buckets (priority: price > timestamp > id > product) so counts
+    # sum to the pre-dedupe drops; duplicate_id captures the latest-wins dedupe removals.
+    r_price = ~price_ok
+    r_ts = price_ok & ~ts_ok
+    r_id = price_ok & ts_ok & ~id_ok
+    r_prod = price_ok & ts_ok & id_ok & ~prod_ok
+    dupes = int(keep.sum()) - int(len(result))
+    report = {
+        "ingested": ingested, "kept": int(len(result)),
+        "rejected": ingested - int(len(result)),
+        "reasons": {"bad_price": int(r_price.sum()), "bad_timestamp": int(r_ts.sum()),
+                    "missing_id": int(r_id.sum()), "missing_product": int(r_prod.sum()),
+                    "duplicate_id": int(dupes)},
+        "samples": [],
+    }
+    # a few attributed examples — the broker can SEE what was thrown out and why
+    for mask, why in ((r_price, "bad_price"), (r_ts, "bad_timestamp"),
+                       (r_id, "missing_id"), (r_prod, "missing_product")):
+        for i in df.index[mask][:3]:
+            report["samples"].append({
+                "reason": why, "source": _s(df.at[i, "source"]),
+                "product_name": _s(df.at[i, "product_name"]),
+                "price": _s(raw_price.at[i]), "timestamp": _s(raw_ts.at[i])})
+    return result, report
+
+
+def _s(v):
+    """Render a possibly-NA scalar as a short JSON-safe string for the rejection log."""
+    if v is None or (isinstance(v, float) and pd.isna(v)) or v is pd.NA:
+        return None
+    return str(v)[:64]
 
 
 # ── NDJSON stream parsing (C1) ─────────────────────────────────────
@@ -184,6 +240,13 @@ def _parse_stream(resp):
 
 
 # ── cache (doubles as last-good, 3A) ───────────────────────────────
+REPORT_FILE = Path("cache/bulk.report.json")   # rejection audit trail, next to the cache
+# Bundled sample of REAL feed history (incl. its raw junk), shipped in version control so a clean
+# checkout with a down feed and no cache still renders real, clearly-labeled data — never an empty
+# screen, never fabricated (review: "clean checkout loaded no data"). Loaded through validate().
+SEED_FILE = Path(__file__).with_name("seed_data.json")
+
+
 def _cache_fresh():
     return CACHE_FILE.exists() and (time.time() - CACHE_FILE.stat().st_mtime) < CONFIG.cache_ttl
 
@@ -201,6 +264,52 @@ def _read_cache():
 def _write_cache(df):
     CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(CACHE_FILE, index=False)
+
+
+def _write_report(report):
+    try:
+        REPORT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        REPORT_FILE.write_text(json.dumps(report))
+    except Exception as e:
+        log.warning("report write failed: %s", e)
+
+
+def read_report():
+    """The last validation audit trail (ingested/kept/rejected + reasons), or None."""
+    try:
+        return json.loads(REPORT_FILE.read_text()) if REPORT_FILE.exists() else None
+    except Exception as e:
+        log.warning("report read failed: %s", e)
+        return None
+
+
+def _safe_to_replace_cache(new_df):
+    """A refresh must NEVER destroy a good last-good cache with a degraded fetch (review: a
+    refresh overwrote its own cached fallback). Replace only when the new frame is non-empty
+    AND not a severe row-count regression vs the existing cache — otherwise the flaky feed's
+    truncated/empty response would wipe the only fallback. Returns (ok, reason)."""
+    if new_df is None or new_df.empty:
+        return False, "fetch produced an empty frame"
+    old = _read_cache()
+    if old is None or old.empty:
+        return True, "no prior cache"
+    if len(new_df) < CONFIG.cache_replace_min_ratio * len(old):
+        return False, f"fetch regressed to {len(new_df)} rows vs cached {len(old)}"
+    return True, "ok"
+
+
+def seed(with_report=False):
+    """Bundled sample slice of real history, validated through the same chokepoint. Guarantees a
+    clean checkout still renders REAL, clearly-labeled data (never live, never fabricated).
+    The sample carries the feed's raw junk on purpose, so loading it visibly exercises the
+    rejection audit trail. `with_report=True` -> (df, report)."""
+    try:
+        data = json.loads(SEED_FILE.read_text())
+    except Exception as e:
+        log.warning("seed load failed: %s", e)
+        empty = pd.DataFrame(columns=COLUMNS)
+        return (empty, _empty_report()) if with_report else empty
+    return validate(pd.DataFrame(_records(data)), with_report=with_report)
 
 
 # ── public API ─────────────────────────────────────────────────────
@@ -239,6 +348,15 @@ def bulk(force=False):
         records = _parse_stream(r)
     finally:
         r.close()
-    df = validate(pd.DataFrame(records))
+    df, report = validate(pd.DataFrame(records), with_report=True)
+    ok, why = _safe_to_replace_cache(df)
+    if not ok:
+        # degraded fetch — keep last-good rather than overwrite it with worse data.
+        cached = _read_cache()
+        if cached is not None and not cached.empty:
+            log.warning("refresh kept last-good cache (%s)", why)
+            return cached, CACHE_FILE.stat().st_mtime
+        # truly nothing to protect (no/empty prior cache): persist what we have, empty or not.
     _write_cache(df)
+    _write_report(report)
     return df, time.time()
