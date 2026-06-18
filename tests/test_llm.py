@@ -86,9 +86,11 @@ def test_resolve_provider_auto_defaults_to_ollama_locally():
     assert llm._resolve_provider(None, None) == "ollama"
 
 
-def test_health_gemini_ok_with_key(monkeypatch):
+def test_health_gemini_ok_pings_models(monkeypatch):
     monkeypatch.setattr(llm, "PROVIDER", "gemini")
     monkeypatch.setattr(llm, "GEMINI_API_KEY", "AIza_xxx")
+    monkeypatch.setattr(llm.requests, "get",
+                        lambda *a, **k: _Resp({"models": [{"name": "models/gemini-2.0-flash"}]}))
     h = llm.health()
     assert h["ok"] is True and h["provider"] == "gemini"
 
@@ -97,6 +99,46 @@ def test_health_gemini_not_ok_without_key(monkeypatch):
     monkeypatch.setattr(llm, "PROVIDER", "gemini")
     monkeypatch.setattr(llm, "GEMINI_API_KEY", None)
     assert llm.health()["ok"] is False
+
+
+def test_health_gemini_not_ok_on_bad_key(monkeypatch):
+    # a present-but-invalid key must read RED now (the old check only saw the env var).
+    monkeypatch.setattr(llm, "PROVIDER", "gemini")
+    monkeypatch.setattr(llm, "GEMINI_API_KEY", "bad")
+    monkeypatch.setattr(llm.requests, "get", lambda *a, **k: _Resp({}, status=400))
+    assert llm.health()["ok"] is False
+
+
+# ── ping() diagnostic (surfaces the real reply or the API's error) ──
+def test_ping_ok_returns_reply(monkeypatch):
+    monkeypatch.setattr(llm, "PROVIDER", "gemini")
+    monkeypatch.setattr(llm, "GEMINI_API_KEY", "AIza_xxx")
+    monkeypatch.setattr(llm.requests, "post",
+                        _fake_post(payload={"choices": [{"message": {"content": "OK"}}]}))
+    ok, detail = llm.ping()
+    assert ok is True and detail == "OK"
+
+
+def test_ping_surfaces_http_error_body(monkeypatch):
+    class _ErrResp:
+        status_code = 400
+        text = '{"error":{"message":"API key not valid"}}'
+    def _raise_post(*a, **k):
+        e = llm.requests.HTTPError("400")
+        e.response = _ErrResp()
+        raise e
+    monkeypatch.setattr(llm, "PROVIDER", "gemini")
+    monkeypatch.setattr(llm, "GEMINI_API_KEY", "bad")
+    monkeypatch.setattr(llm.requests, "post", _raise_post)
+    ok, detail = llm.ping()
+    assert ok is False and "API key not valid" in detail
+
+
+def test_ping_no_key_reports_skip(monkeypatch):
+    monkeypatch.setattr(llm, "PROVIDER", "gemini")
+    monkeypatch.setattr(llm, "GEMINI_API_KEY", None)
+    ok, detail = llm.ping()
+    assert ok is False and "missing API key" in detail
 
 
 # ── fail-silent contract (the important part) ───────────────────────
