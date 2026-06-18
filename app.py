@@ -62,9 +62,11 @@ section[data-testid="stSidebar"] h3 { letter-spacing: -.01em; }
 .stButton > button:hover { border-color: var(--accent); color: var(--accent); }
 /* selectbox + textarea rounding */
 [data-baseweb="select"] > div, .stTextArea textarea { border-radius: 10px; }
-/* wider sidebar + bigger chat input — only when EXPANDED, so a collapse (esp. on mobile) is
-   never overridden into staying open and shoving the main column off-screen. */
-section[data-testid="stSidebar"][aria-expanded="true"] { width: 380px !important; min-width: 380px !important; }
+/* roomier copilot column on DESKTOP only; phones use Streamlit's native sidebar drawer
+   (Streamlit 1.58 puts no aria-expanded on the <section>, so don't pin a width there). */
+@media (min-width: 821px) {
+  section[data-testid="stSidebar"] { width: 360px !important; min-width: 360px !important; }
+}
 [data-testid="stChatInput"] textarea { font-size: .95rem; min-height: 3rem; }
 [data-testid="stChatInput"] { border-radius: 12px; }
 /* gmail-style inbox rows */
@@ -117,26 +119,17 @@ section[data-testid="stSidebar"][aria-expanded="true"] { width: 380px !important
   50%      { transform:scale(1.08); filter:brightness(1.15); } }
 /* ── responsive: phones/tablets (the desk is also checked on mobile) ── */
 @media (max-width: 820px) {
-  /* On phones the sidebar must OVERLAY, not push: float it over full-width content and slide it
-     fully off-canvas when collapsed. (Pinning a width kept it in-flow and shoved the main column
-     off the left edge; translateX(-100%) of a 0-width box moves nothing, so its overflowing text
-     bled through as a 1-char strip on the left — both fixed here.) */
-  section[data-testid="stSidebar"] { overflow-x: hidden !important; }
-  section[data-testid="stSidebar"][aria-expanded="true"] {
-    position: fixed !important; top: 0; left: 0; height: 100% !important;
-    width: min(86vw, 360px) !important; min-width: 0 !important; max-width: 92vw !important;
-    z-index: 999990 !important; overflow-y: auto !important;
-    box-shadow: 0 0 0 100vmax rgba(2,3,5,0.55);
+  /* Collapsed-sidebar bleed fix (Streamlit 1.58 puts no aria-expanded on the <section>). The
+     collapsed sidebar sits at ~1ch width at the left edge and its text WRAPS into that width as a
+     vertical strip ("Copilot"/"ollama"). Use a CONTAINER QUERY: treat the sidebar as a size
+     container and hide its content whenever the sidebar itself is rendered narrow (i.e. collapsed)
+     — independent of HOW Streamlit collapses it, and without touching the expanded drawer. */
+  section[data-testid="stSidebar"] { container-type: inline-size; overflow-x: hidden !important; }
+  @container (max-width: 140px) {
+    section[data-testid="stSidebar"] [data-testid="stSidebarContent"] { visibility: hidden !important; }
   }
-  section[data-testid="stSidebar"][aria-expanded="false"] {
-    width: 0 !important; min-width: 0 !important; overflow: hidden !important;
-    transform: translateX(-100vw) !important; box-shadow: none !important;
-    visibility: hidden !important;            /* belt-and-braces: no content can bleed at the edge */
-  }
-  /* main column owns the full viewport width regardless of sidebar state */
+  /* main column always owns the full viewport width */
   [data-testid="stMain"], section.main { width: 100% !important; min-width: 0 !important; margin-left: 0 !important; }
-  /* keep the open/close control tappable above the overlay */
-  [data-testid="stSidebarCollapsedControl"], [data-testid="stSidebarCollapseButton"] { z-index: 1000000 !important; }
 }
 @media (max-width: 640px) {
   .block-container { padding-top: .8rem; padding-left: .9rem; padding-right: .9rem; max-width: 100%; }
