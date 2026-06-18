@@ -118,16 +118,20 @@ section[data-testid="stSidebar"][aria-expanded="true"] { width: 380px !important
 /* ── responsive: phones/tablets (the desk is also checked on mobile) ── */
 @media (max-width: 820px) {
   /* On phones the sidebar must OVERLAY, not push: float it over full-width content and slide it
-     off-canvas when collapsed. (Pinning a width kept it in-flow and shoved the main column off
-     the left edge — the reported overflow.) */
+     fully off-canvas when collapsed. (Pinning a width kept it in-flow and shoved the main column
+     off the left edge; translateX(-100%) of a 0-width box moves nothing, so its overflowing text
+     bled through as a 1-char strip on the left — both fixed here.) */
+  section[data-testid="stSidebar"] { overflow-x: hidden !important; }
   section[data-testid="stSidebar"][aria-expanded="true"] {
     position: fixed !important; top: 0; left: 0; height: 100% !important;
     width: min(86vw, 360px) !important; min-width: 0 !important; max-width: 92vw !important;
-    z-index: 999990 !important; box-shadow: 0 0 0 100vmax rgba(2,3,5,0.55);
+    z-index: 999990 !important; overflow-y: auto !important;
+    box-shadow: 0 0 0 100vmax rgba(2,3,5,0.55);
   }
   section[data-testid="stSidebar"][aria-expanded="false"] {
-    width: 0 !important; min-width: 0 !important; transform: translateX(-100%) !important;
-    box-shadow: none !important;
+    width: 0 !important; min-width: 0 !important; overflow: hidden !important;
+    transform: translateX(-100vw) !important; box-shadow: none !important;
+    visibility: hidden !important;            /* belt-and-braces: no content can bleed at the edge */
   }
   /* main column owns the full viewport width regardless of sidebar state */
   [data-testid="stMain"], section.main { width: 100% !important; min-width: 0 !important; margin-left: 0 !important; }
@@ -135,16 +139,21 @@ section[data-testid="stSidebar"][aria-expanded="true"] { width: 380px !important
   [data-testid="stSidebarCollapsedControl"], [data-testid="stSidebarCollapseButton"] { z-index: 1000000 !important; }
 }
 @media (max-width: 640px) {
-  .block-container { padding-top: 1rem; padding-left: .7rem; padding-right: .7rem; max-width: 100%; }
-  h1 { font-size: 1.5rem !important; }
+  .block-container { padding-top: .8rem; padding-left: .9rem; padding-right: .9rem; max-width: 100%; }
+  h1 { font-size: 1.5rem !important; line-height: 1.15 !important; }
   /* stack any row of columns (metrics, A/B panels, inbox header) instead of squishing them */
   [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: .5rem !important; }
   [data-testid="stHorizontalBlock"] > div { flex: 1 1 100% !important; min-width: 100% !important; }
   [data-testid="stMetricValue"] { font-size: 1.15rem !important; }
   [data-testid="stMetric"] { padding: .45rem .7rem; }
   /* let the greeting/clock header wrap rather than collide (see mobile screenshot) */
-  .hero-head { flex-wrap: wrap !important; }
-  .hero-head .hero-clock { text-align: left !important; }
+  .hero-head { flex-wrap: wrap !important; gap: .35rem !important; }
+  .hero-head .hero-clock { text-align: left !important; padding-top: 0 !important; }
+  /* cards: a touch more separation + comfortable inner padding on a narrow screen */
+  [data-testid="stVerticalBlockBorderWrapper"] { margin-bottom: .15rem; }
+  [data-testid="stVerticalBlockBorderWrapper"] > div { padding: .35rem .55rem !important; }
+  /* alerts read better with room to breathe */
+  [data-testid="stAlert"] { padding: .6rem .8rem !important; }
   /* tables stay usable by scrolling horizontally rather than crushing columns */
   [data-testid="stDataFrame"] { font-size: .76rem; }
 }
