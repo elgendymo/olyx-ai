@@ -47,6 +47,58 @@ def test_ollama_returns_content_and_shapes_request(monkeypatch):
     assert body["options"]["temperature"] == 0.0 and body["options"]["seed"] == 0
 
 
+# ── gemini adapter (OpenAI-compatible Gemini endpoint) ──────────────
+def test_gemini_returns_content_and_shapes_request(monkeypatch):
+    cap = {}
+    monkeypatch.setattr(llm, "PROVIDER", "gemini")
+    monkeypatch.setattr(llm, "MODEL", "gemini-2.0-flash")
+    monkeypatch.setattr(llm, "GEMINI_API_KEY", "AIza_xxx")
+    monkeypatch.setattr(llm.requests, "post",
+                        _fake_post(payload={"choices": [{"message": {"content": " UCO is up 3% "}}]},
+                                   capture=cap))
+    out = llm.chat("you are terse", "how is UCO?")
+    assert out == "UCO is up 3%"
+    assert cap["url"] == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    assert cap["headers"]["Authorization"] == "Bearer AIza_xxx"
+    body = cap["body"]
+    assert body["model"] == "gemini-2.0-flash"
+    assert [m["role"] for m in body["messages"]] == ["system", "user"]
+
+
+def test_gemini_without_key_returns_none(monkeypatch):
+    monkeypatch.setattr(llm, "PROVIDER", "gemini")
+    monkeypatch.setattr(llm, "GEMINI_API_KEY", None)
+    assert llm.chat("s", "u") is None
+
+
+# ── provider auto-detection (local ollama vs hosted gemini) ─────────
+def test_resolve_provider_explicit_env_wins():
+    assert llm._resolve_provider("Anthropic", "AIza_xxx") == "anthropic"
+    assert llm._resolve_provider("ollama", None) == "ollama"
+
+
+def test_resolve_provider_auto_picks_gemini_when_key_present():
+    # the Streamlit Cloud case: no Ollama daemon, a Gemini key in secrets -> route to Gemini.
+    assert llm._resolve_provider(None, "AIza_xxx") == "gemini"
+
+
+def test_resolve_provider_auto_defaults_to_ollama_locally():
+    assert llm._resolve_provider(None, None) == "ollama"
+
+
+def test_health_gemini_ok_with_key(monkeypatch):
+    monkeypatch.setattr(llm, "PROVIDER", "gemini")
+    monkeypatch.setattr(llm, "GEMINI_API_KEY", "AIza_xxx")
+    h = llm.health()
+    assert h["ok"] is True and h["provider"] == "gemini"
+
+
+def test_health_gemini_not_ok_without_key(monkeypatch):
+    monkeypatch.setattr(llm, "PROVIDER", "gemini")
+    monkeypatch.setattr(llm, "GEMINI_API_KEY", None)
+    assert llm.health()["ok"] is False
+
+
 # ── fail-silent contract (the important part) ───────────────────────
 def test_chat_returns_none_on_exception(monkeypatch):
     monkeypatch.setattr(llm, "PROVIDER", "ollama")
