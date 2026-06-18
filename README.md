@@ -57,9 +57,17 @@ the copilot returns the deterministic **facts receipt** and the digest returns t
 per-email asset+sentiment lines. The numeric dashboard (prices, dislocations, freshness, curve)
 is fully usable without an LLM, but the *AI summarisation/narration* is only there with one running.
 
-LLM is swappable via env: `BROKER_LLM_PROVIDER=ollama|anthropic|openai` (default `ollama`,
-model `qwen2.5:7b`), `BROKER_LLM_MODEL=…`, `OLLAMA_HOST=…`. Cloud providers read
-`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`. The feed endpoint is one env var: `FEED_BASE_URL`.
+LLM is swappable via env: `BROKER_LLM_PROVIDER=ollama|huggingface|anthropic|openai`,
+`BROKER_LLM_MODEL=…`, `OLLAMA_HOST=…`. Cloud providers read their own key
+(`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `HF_TOKEN`). The feed endpoint is one env var:
+`FEED_BASE_URL`.
+
+**Auto-detection (local vs deployed):** leave `BROKER_LLM_PROVIDER` unset and the client picks
+for you — locally it uses **Ollama** (`qwen2.5:7b`); when an **`HF_TOKEN`** is present it routes
+to **Hugging Face** (`Qwen/Qwen2.5-7B-Instruct`, same Qwen family so narration matches). That's
+the Streamlit Cloud story: Cloud can't run an Ollama daemon, so add `HF_TOKEN` under **App →
+Settings → Secrets** (Streamlit exposes secrets as env vars) and the deployed app talks to HF
+while your laptop keeps using local Ollama — no code change, no per-environment config.
 
 > Tests are run with `python -m pytest` (the `-m` puts the repo root on the import path); plain
 > `pytest` won't find the modules.

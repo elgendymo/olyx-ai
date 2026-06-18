@@ -47,6 +47,58 @@ def test_ollama_returns_content_and_shapes_request(monkeypatch):
     assert body["options"]["temperature"] == 0.0 and body["options"]["seed"] == 0
 
 
+# ── huggingface adapter (OpenAI-compatible HF router) ───────────────
+def test_huggingface_returns_content_and_shapes_request(monkeypatch):
+    cap = {}
+    monkeypatch.setattr(llm, "PROVIDER", "huggingface")
+    monkeypatch.setattr(llm, "MODEL", "Qwen/Qwen2.5-7B-Instruct")
+    monkeypatch.setattr(llm, "HF_TOKEN", "hf_xxx")
+    monkeypatch.setattr(llm.requests, "post",
+                        _fake_post(payload={"choices": [{"message": {"content": " UCO is up 3% "}}]},
+                                   capture=cap))
+    out = llm.chat("you are terse", "how is UCO?")
+    assert out == "UCO is up 3%"
+    assert cap["url"] == "https://router.huggingface.co/v1/chat/completions"
+    assert cap["headers"]["Authorization"] == "Bearer hf_xxx"
+    body = cap["body"]
+    assert body["model"] == "Qwen/Qwen2.5-7B-Instruct"
+    assert [m["role"] for m in body["messages"]] == ["system", "user"]
+
+
+def test_huggingface_without_token_returns_none(monkeypatch):
+    monkeypatch.setattr(llm, "PROVIDER", "huggingface")
+    monkeypatch.setattr(llm, "HF_TOKEN", None)
+    assert llm.chat("s", "u") is None
+
+
+# ── provider auto-detection (local ollama vs hosted huggingface) ─────
+def test_resolve_provider_explicit_env_wins():
+    assert llm._resolve_provider("Anthropic", "hf_xxx") == "anthropic"
+    assert llm._resolve_provider("ollama", None) == "ollama"
+
+
+def test_resolve_provider_auto_picks_hf_when_token_present():
+    # the Streamlit Cloud case: no Ollama daemon, an HF token in secrets -> route to HF.
+    assert llm._resolve_provider(None, "hf_xxx") == "huggingface"
+
+
+def test_resolve_provider_auto_defaults_to_ollama_locally():
+    assert llm._resolve_provider(None, None) == "ollama"
+
+
+def test_health_huggingface_ok_with_token(monkeypatch):
+    monkeypatch.setattr(llm, "PROVIDER", "huggingface")
+    monkeypatch.setattr(llm, "HF_TOKEN", "hf_xxx")
+    h = llm.health()
+    assert h["ok"] is True and h["provider"] == "huggingface"
+
+
+def test_health_huggingface_not_ok_without_token(monkeypatch):
+    monkeypatch.setattr(llm, "PROVIDER", "huggingface")
+    monkeypatch.setattr(llm, "HF_TOKEN", None)
+    assert llm.health()["ok"] is False
+
+
 # ── fail-silent contract (the important part) ───────────────────────
 def test_chat_returns_none_on_exception(monkeypatch):
     monkeypatch.setattr(llm, "PROVIDER", "ollama")
